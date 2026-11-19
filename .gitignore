@@ -1,0 +1,22 @@
+# 构建产物
+build-wasm/
+artifacts/
+*.wasm
+*.wasm.br
+*.js.map
+slicer-mt.js
+bambu-slicer.js
+
+# 源码检出（CI 里临时拉取）
+orca/
+BambuStudio/
+
+# 依赖
+deps-install/
+/tmp/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+.DS_Store

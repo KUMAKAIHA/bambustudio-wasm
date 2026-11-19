@@ -1,0 +1,236 @@
+name: Build WASM
+
+# BambuStudio compiled to WebAssembly, built on GitHub's runners.
+#
+# This runs here rather than on a local machine for one reason: the dependency
+# tree (Boost, oneTBB, GMP/MPFR, CGAL shims) plus libslic3r is a multi-hour
+# cross-compile that needs a clean, reproducible toolchain. That is what CI is
+# for. Local builds are possible but not the supported path.
+#
+# Expected runtime: ~3-4 h cold, ~40 min warm (ccache + dependency caches).
+
+on:
+  workflow_dispatch:
+    inputs:
+      bambu_version:
+        description: 'BambuStudio tag to build (e.g. v02.09.01.70)'
+        default: 'v02.09.01.70'
+        required: true
+  push:
+    tags: ['wasm-v*']
+    paths:
+      - 'patches/**'
+      - 'cmake/**'
+      - 'bridge/**'
+      - 'wasm/**'
+      - 'scripts/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/build-wasm.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-wasm-${{ github.event.inputs.bambu_version || github.ref_name }}
+
+env:
+  BAMBU_VERSION: ${{ github.event.inputs.bambu_version || 'v02.09.01.70' }}
+  EMSDK_VERSION: '3.1.74'
+  ONETBB_VERSION: 'v2021.13.2'
+  BOOST_VERSION: '1.84.0'
+  GMP_VERSION: '6.3.0'
+  MPFR_VERSION: '4.2.1'
+  OUTPUT_NAME: bambu-slicer
+  BSW_SRC: ${{ github.workspace }}/BambuStudio
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Toolchain ─────────────────────────────────────────────────────────
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build python3 cmake pkg-config m4 texinfo \
+            libssl-dev ccache brotli
+
+      - name: Cache Emscripten
+        id: cache-emsdk
+        uses: actions/cache@v4
+        with:
+          path: /opt/emsdk
+          key: emsdk-${{ runner.os }}-${{ env.EMSDK_VERSION }}-mt-v1
+
+      - name: Install Emscripten
+        if: steps.cache-emsdk.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git /opt/emsdk
+          /opt/emsdk/emsdk install "${{ env.EMSDK_VERSION }}"
+          /opt/emsdk/emsdk activate "${{ env.EMSDK_VERSION }}"
+
+      - name: Activate Emscripten
+        run: |
+          source /opt/emsdk/emsdk_env.sh
+          emcc --version | head -1
+          echo "EMS DK ready"
+
+      # ── BambuStudio source ────────────────────────────────────────────────
+      - name: Cache BambuStudio source
+        id: cache-src
+        uses: actions/cache@v4
+        with:
+          path: BambuStudio
+          key: bambu-src-${{ env.BAMBU_VERSION }}-v1
+
+      - name: Fetch BambuStudio ${{ env.BAMBU_VERSION }}
+        if: steps.cache-src.outputs.cache-hit != 'true'
+        run: |
+          chmod +x scripts/fetch-source.sh
+          ./scripts/fetch-source.sh "${{ env.BAMBU_VERSION }}"
+
+      # ── WASM dependencies ─────────────────────────────────────────────────
+      # Boost, GMP/MPFR and oneTBB have to exist as WASM objects before
+      # libslic3r will configure: BambuStudio's CMake calls find_package on all
+      # three unconditionally.
+      - name: Cache WASM dependencies
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: deps-install
+          key: wasm-deps-${{ runner.os }}-b${{ env.BOOST_VERSION }}-g${{ env.GMP_VERSION }}-t${{ env.ONETBB_VERSION }}-v1
+
+      - name: Build WASM dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: |
+          source /opt/emsdk/emsdk_env.sh
+          chmod +x scripts/build-deps.sh
+          ./scripts/build-deps.sh
+
+      - name: Export dependency paths
+        run: |
+          {
+            echo "BOOST_WASM_ROOT=${{ github.workspace }}/deps-install/boost"
+            echo "GMP_WASM_INC=${{ github.workspace }}/deps-install/gmp/include"
+            echo "GMP_WASM_LIB=${{ github.workspace }}/deps-install/gmp/lib/libgmp.a"
+            echo "MPFR_WASM_INC=${{ github.workspace }}/deps-install/mpfr/include"
+            echo "MPFR_WASM_LIB=${{ github.workspace }}/deps-install/mpfr/lib/libmpfr.a"
+            echo "TBB_WASM_ROOT=${{ github.workspace }}/deps-install/tbb"
+          } >> "$GITHUB_ENV"
+
+      # ── Source patches ────────────────────────────────────────────────────
+      - name: Apply WASM compatibility patches
+        run: |
+          python3 patches/apply.py
+          # Re-running must be a no-op; if it isn't, the patch set is not
+          # idempotent and a partial CI retry would corrupt the tree.
+          python3 patches/apply.py
+
+      # ── ccache ────────────────────────────────────────────────────────────
+      # libslic3r is ~400 translation units; without ccache every link-flag
+      # change costs the full compile.
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ env.BAMBU_VERSION }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ env.BAMBU_VERSION }}-
+            ccache-${{ runner.os }}-
+
+      - name: Configure ccache
+        run: |
+          ccache --max-size=2G
+          echo "CCACHE_DIR=$HOME/.cache/ccache" >> "$GITHUB_ENV"
+
+      # ── Build ─────────────────────────────────────────────────────────────
+      - name: Configure
+        run: |
+          source /opt/emsdk/emsdk_env.sh
+          emcmake cmake -S . -B build-wasm -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBSW_SRC="${{ env.BSW_SRC }}" \
+            -DBSW_OUTPUT_NAME="${{ env.OUTPUT_NAME }}"
+
+      - name: Build WASM module
+        run: |
+          source /opt/emsdk/emsdk_env.sh
+          emmake cmake --build build-wasm -j"$(nproc)"
+
+      # ── Verify ────────────────────────────────────────────────────────────
+      - name: Verify artifacts
+        run: |
+          ls -la artifacts/
+          test -f "artifacts/${{ env.OUTPUT_NAME }}.wasm" || {
+            echo "::error::wasm artifact missing"; exit 1; }
+          test -f "artifacts/${{ env.OUTPUT_NAME }}.js" || {
+            echo "::error::js glue missing"; exit 1; }
+
+      # A module that links but exports nothing is the classic "green build,
+      # broken product" failure. Assert the ABI surface explicitly.
+      - name: Verify exported ABI
+        run: |
+          node -e '
+            const fs = require("fs");
+            const buf = fs.readFileSync("artifacts/${{ env.OUTPUT_NAME }}.wasm");
+            const mod = new WebAssembly.Module(buf);
+            const ex = WebAssembly.Module.exports(mod).map(e => e.name);
+            const required = [
+              "bsw_session_create","bsw_init","bsw_model_load",
+              "bsw_slice","bsw_cancel","bsw_asset_read","bsw_last_error"
+            ];
+            const missing = required.filter(n => !ex.includes(n));
+            if (missing.length) {
+              console.error("missing exports:", missing.join(", "));
+              process.exit(1);
+            }
+            console.log("exports OK:", ex.length, "symbols");
+            console.log("size:", (buf.length/1048576).toFixed(1), "MiB");
+          '
+
+      # ── Package ───────────────────────────────────────────────────────────
+      # Cloudflare Pages caps a single asset at 25 MiB. The raw module is
+      # larger than that, so we ship pre-compressed bytes and let the host
+      # decompress with DecompressionStream -- which is what a CDN would do
+      # anyway, just moved earlier in the pipeline.
+      - name: Brotli-compress artifacts
+        run: |
+          for f in artifacts/*.wasm artifacts/*.js; do
+            brotli -q 11 -f "$f"
+            echo "$(stat -c%s "$f.br") bytes  $f.br"
+          done
+
+      - name: Report sizes
+        run: |
+          echo "### Artifact sizes" >> "$GITHUB_STEP_SUMMARY"
+          echo "| file | raw | brotli |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          for f in artifacts/*.wasm artifacts/*.js; do
+            [ -f "$f" ] || continue
+            raw=$(stat -c%s "$f")
+            br=$([ -f "$f.br" ] && stat -c%s "$f.br" || echo 0)
+            echo "| $(basename "$f") | $raw | $br |" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bambustudio-wasm-${{ env.BAMBU_VERSION }}
+          path: artifacts/
+          retention-days: 30
+
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/wasm-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.wasm
+            artifacts/*.wasm.br
+            artifacts/*.js
+            artifacts/*.js.br
+          body: |
+            BambuStudio ${{ env.BAMBU_VERSION }} compiled to WebAssembly.
+            Built on GitHub Actions with Emscripten ${{ env.EMSDK_VERSION }}.
