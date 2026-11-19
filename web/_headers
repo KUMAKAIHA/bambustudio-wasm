@@ -1,0 +1,15 @@
+# Cloudflare Pages response headers.
+#
+# SharedArrayBuffer requires cross-origin isolation. Without these two
+# headers the browser refuses to construct one and an Emscripten pthreads
+# build cannot start at all -- the failure is a bare 'SharedArrayBuffer is
+# not defined' with no hint about the cause.
+
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: same-origin
+
+# The engine binary is content-addressed by version, so it caches forever.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
