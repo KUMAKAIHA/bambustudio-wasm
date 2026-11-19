@@ -42,6 +42,10 @@ env:
   MPFR_VERSION: '4.2.1'
   OUTPUT_NAME: bambu-slicer
   BSW_SRC: ${{ github.workspace }}/BambuStudio
+  # GitHub's runners ship CMake 4.x, which hard-errors on any project still
+  # declaring cmake_minimum_required(VERSION <3.5). BambuStudio's own tree and
+  # several of its dependencies do exactly that.
+  CMAKE_POLICY_VERSION_MINIMUM: '3.5'
 
 jobs:
   build:

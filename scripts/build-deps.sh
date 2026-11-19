@@ -32,6 +32,12 @@ NPROC=$(nproc)
 EM_CFLAGS="-sSUPPORT_LONGJMP=wasm -pthread -O2"
 EM_CXXFLAGS="-fwasm-exceptions -pthread -O2"
 
+# GitHub's ubuntu-latest ships CMake 4.x, which hard-errors on projects that
+# still declare cmake_minimum_required(VERSION <3.5) -- EXPAT 2.5.0 is one.
+# This is CMake's own documented escape hatch and applies to every invocation,
+# so it is exported rather than repeated per dependency.
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
+
 echo "[deps] install root: $INSTALL"
 
 # ── GMP ──────────────────────────────────────────────────────────────────────
