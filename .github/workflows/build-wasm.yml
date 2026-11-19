@@ -37,7 +37,7 @@ env:
   BAMBU_VERSION: ${{ github.event.inputs.bambu_version || 'v02.09.01.70' }}
   EMSDK_VERSION: '3.1.74'
   ONETBB_VERSION: 'v2021.13.2'
-  BOOST_VERSION: '1.84.0'
+  BOOST_VERSION: '1.83.0'
   GMP_VERSION: '6.3.0'
   MPFR_VERSION: '4.2.1'
   OUTPUT_NAME: bambu-slicer
@@ -113,13 +113,21 @@ jobs:
 
       - name: Export dependency paths
         run: |
+          # libslic3r calls find_package on every one of these unconditionally,
+          # so the paths must be exported before configure runs.
+          INSTALL="${{ github.workspace }}/deps-install"
           {
-            echo "BOOST_WASM_ROOT=${{ github.workspace }}/deps-install/boost"
-            echo "GMP_WASM_INC=${{ github.workspace }}/deps-install/gmp/include"
-            echo "GMP_WASM_LIB=${{ github.workspace }}/deps-install/gmp/lib/libgmp.a"
-            echo "MPFR_WASM_INC=${{ github.workspace }}/deps-install/mpfr/include"
-            echo "MPFR_WASM_LIB=${{ github.workspace }}/deps-install/mpfr/lib/libmpfr.a"
-            echo "TBB_WASM_ROOT=${{ github.workspace }}/deps-install/tbb"
+            echo "DEPS_INSTALL=$INSTALL"
+            echo "BOOST_WASM_ROOT=$INSTALL"
+            echo "GMP_WASM_INC=$INSTALL/include"
+            echo "GMP_WASM_LIB=$INSTALL/lib/libgmp.a"
+            echo "MPFR_WASM_INC=$INSTALL/include"
+            echo "MPFR_WASM_LIB=$INSTALL/lib/libmpfr.a"
+            echo "TBB_WASM_ROOT=$INSTALL"
+            echo "CMAKE_PREFIX_PATH=$INSTALL"
+            echo "CGAL_DIR=$INSTALL/lib/cmake/CGAL"
+            echo "nlohmann_json_DIR=$INSTALL/share/cmake/nlohmann_json"
+            echo "cereal_DIR=$INSTALL/share/cmake/cereal"
           } >> "$GITHUB_ENV"
 
       # ── Source patches ────────────────────────────────────────────────────

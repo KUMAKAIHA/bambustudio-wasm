@@ -1,135 +1,196 @@
 #!/usr/bin/env bash
 # Cross-compile BambuStudio's native dependencies to WASM.
 #
-# Everything here is required unconditionally by BambuStudio's CMake:
-#   Boost      -- filesystem, thread, log, locale, regex, chrono, atomic
-#   GMP/MPFR   -- exact rational arithmetic used by the geometry kernel
-#   oneTBB     -- the parallel primitives the slicer is built around
+# libslic3r's CMake calls find_package on all of these unconditionally, so
+# every one has to exist as a WASM object before configure will succeed.
 #
-# Each is installed into deps-install/<name> and pointed at by the environment
-# variables exported in the workflow.
+# The recipes follow the proven set published by Hiosdra/OrcaWasm: OrcaSlicer
+# is a fork of the same libslic3r lineage, so the dependency surface and the
+# known-good configure flags are identical.
 set -euo pipefail
 
-: "${BOOST_VERSION:=1.84.0}"
+: "${BOOST_VERSION:=1.83.0}"
 : "${GMP_VERSION:=6.3.0}"
 : "${MPFR_VERSION:=4.2.1}"
+: "${CGAL_VERSION:=5.6.2}"
 : "${ONETBB_VERSION:=v2021.13.2}"
+: "${EXPAT_VERSION:=2.5.0}"
+: "${NLOPT_VERSION:=2.7.1}"
+: "${CEREAL_VERSION:=1.3.2}"
 
 ROOT="$(pwd)"
 INSTALL="$ROOT/deps-install"
 mkdir -p "$INSTALL"
 
-EM_FLAGS="-fwasm-exceptions -pthread -O2"
-EM_CFLAGS="-sSUPPORT_LONGJMP=wasm -pthread -O2"
+NPROC=$(nproc)
+export CFLAGS="-sSUPPORT_LONGJMP=wasm -pthread -O2"
+export CXXFLAGS="-fwasm-exceptions -pthread -O2"
 
-# helper: run emconfigure/emmake with a private build dir
-NPROC="$(nproc)"
+echo "[deps] install root: $INSTALL"
 
-# ── GMP ───────────────────────────────────────────────────────────────────────
-if [ ! -f "$INSTALL/gmp/lib/libgmp.a" ]; then
+# ── GMP ──────────────────────────────────────────────────────────────────────
+if [ ! -f "$INSTALL/lib/libgmp.a" ]; then
   echo "[gmp] building $GMP_VERSION"
-  cd /tmp
-  curl -fsSL --retry 3 -o gmp.tar.xz "https://ftp.gnu.org/gnu/gmp/gmp-$GMP_VERSION.tar.xz"
-  tar xf gmp.tar.xz
-  cd "gmp-$GMP_VERSION"
-  emconfigure ./configure \
-    --disable-shared --enable-static \
-    --disable-assembly \
-    --prefix="$INSTALL/gmp" \
-    CFLAGS="$EM_CFLAGS"
+  DL=/tmp/deps-dl; mkdir -p "$DL"
+  curl -fL --retry 3 "https://ftp.gnu.org/gnu/gmp/gmp-$GMP_VERSION.tar.xz" | tar xJ -C "$DL"
+  cd "$DL/gmp-$GMP_VERSION"
+  # gmp's configure probes the assembler for its label suffix, which libtool
+  # cannot do under emconfigure and fails with "Cannot determine label
+  # suffix". CONFIG_SITE seeds the cache variable before the probe runs;
+  # --host and --disable-assembly then skip the probe entirely.
+  printf 'gmp_cv_asm_label_suffix=":"\n' > /tmp/gmp_site.sh
+  export gmp_cv_asm_label_suffix=":"
+  CONFIG_SITE=/tmp/gmp_site.sh emconfigure ./configure \
+    --prefix="$INSTALL" \
+    --host=wasm32-unknown-emscripten \
+    --disable-shared --enable-static --disable-assembly --enable-cxx
   emmake make -j"$NPROC"
-  emmake make install
+  make install
   echo "[gmp] done"
 else
   echo "[gmp] cached"
 fi
 
-# ── MPFR ──────────────────────────────────────────────────────────────────────
-if [ ! -f "$INSTALL/mpfr/lib/libmpfr.a" ]; then
+# ── MPFR ─────────────────────────────────────────────────────────────────────
+if [ ! -f "$INSTALL/lib/libmpfr.a" ]; then
   echo "[mpfr] building $MPFR_VERSION"
-  cd /tmp
-  curl -fsSL --retry 3 -o mpfr.tar.xz "https://ftp.gnu.org/gnu/mpfr/mpfr-$MPFR_VERSION.tar.xz"
-  tar xf mpfr.tar.xz
-  cd "mpfr-$MPFR_VERSION"
+  DL=/tmp/deps-dl; mkdir -p "$DL"
+  curl -fL --retry 3 "https://ftp.gnu.org/gnu/mpfr/mpfr-$MPFR_VERSION.tar.xz" | tar xJ -C "$DL"
+  cd "$DL/mpfr-$MPFR_VERSION"
   emconfigure ./configure \
-    --disable-shared --enable-static \
-    --prefix="$INSTALL/mpfr" \
-    --with-gmp="$INSTALL/gmp" \
-    CFLAGS="$EM_CFLAGS"
+    --prefix="$INSTALL" --with-gmp="$INSTALL" \
+    --disable-shared --enable-static
   emmake make -j"$NPROC"
-  emmake make install
+  make install
   echo "[mpfr] done"
 else
   echo "[mpfr] cached"
 fi
 
-# ── Boost ─────────────────────────────────────────────────────────────────────
-if [ ! -d "$INSTALL/boost/include/boost" ]; then
+# ── Eigen / nlohmann / cereal ────────────────────────────────────────────────
+# Header-only; the CMake install step only drops headers plus a config file so
+# find_package works inside libslic3r.
+if [ ! -d "$INSTALL/include/eigen3" ]; then
+  echo "[eigen] installing"
+  curl -fsSL "https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz" | tar xz -C /tmp
+  cmake -S /tmp/eigen-5.0.1 -B /tmp/eigen-build -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="$INSTALL" -DBUILD_TESTING=OFF
+  cmake --build /tmp/eigen-build --target install
+  echo "[eigen] done"
+else
+  echo "[eigen] cached"
+fi
+
+if [ ! -f "$INSTALL/share/cmake/nlohmann_json/nlohmann_jsonConfig.cmake" ]; then
+  echo "[nlohmann] installing"
+  git clone --depth 1 --branch v3.11.3 https://github.com/nlohmann/json.git /tmp/nlohmann
+  cmake -S /tmp/nlohmann -B /tmp/nlohmann-build -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="$INSTALL" -DJSON_BuildTests=OFF -DJSON_Install=ON
+  cmake --build /tmp/nlohmann-build --target install
+  echo "[nlohmann] done"
+else
+  echo "[nlohmann] cached"
+fi
+
+if [ ! -f "$INSTALL/share/cmake/cereal/cerealConfig.cmake" ]; then
+  echo "[cereal] installing"
+  git clone --depth 1 --branch v$CEREAL_VERSION https://github.com/USCiLab/cereal.git /tmp/cereal
+  cmake -S /tmp/cereal -B /tmp/cereal-build -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="$INSTALL" -DJUST_INSTALL_CEREAL=ON \
+    -DSKIP_PERFORMANCE_COMPARISON=ON -DBUILD_SANDBOX=OFF -DBUILD_DOC=OFF
+  cmake --build /tmp/cereal-build --target install
+  echo "[cereal] done"
+else
+  echo "[cereal] cached"
+fi
+
+# ── EXPAT ────────────────────────────────────────────────────────────────────
+if [ ! -f "$INSTALL/lib/libexpat.a" ]; then
+  echo "[expat] building $EXPAT_VERSION"
+  curl -fsSL "https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION//./_}/expat-$EXPAT_VERSION.tar.xz" | tar xJ -C /tmp
+  emcmake cmake -S "/tmp/expat-$EXPAT_VERSION" -B /tmp/expat-build -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="$INSTALL" \
+    -DEXPAT_BUILD_TOOLS=OFF -DEXPAT_BUILD_EXAMPLES=OFF \
+    -DEXPAT_BUILD_TESTS=OFF -DEXPAT_SHARED_LIBS=OFF
+  emmake cmake --build /tmp/expat-build --target install
+  echo "[expat] done"
+else
+  echo "[expat] cached"
+fi
+
+# ── NLopt ────────────────────────────────────────────────────────────────────
+if [ ! -f "$INSTALL/lib/libnlopt.a" ]; then
+  echo "[nlopt] building $NLOPT_VERSION"
+  curl -fsSL "https://github.com/stevengj/nlopt/archive/v$NLOPT_VERSION.tar.gz" | tar xz -C /tmp
+  emcmake cmake -S "/tmp/nlopt-$NLOPT_VERSION" -B /tmp/nlopt-build -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="$INSTALL" \
+    -DNLOPT_PYTHON=OFF -DNLOPT_OCTAVE=OFF -DNLOPT_SWIG=OFF -DNLOPT_MATLAB=OFF \
+    -DNLOPT_GUILE=OFF -DNLOPT_JAVA=OFF -DNLOPT_CXX=ON -DBUILD_SHARED_LIBS=OFF
+  emmake cmake --build /tmp/nlopt-build --target install
+  echo "[nlopt] done"
+else
+  echo "[nlopt] cached"
+fi
+
+# ── Boost ────────────────────────────────────────────────────────────────────
+if [ ! -d "$INSTALL/include/boost" ]; then
   echo "[boost] building $BOOST_VERSION"
-  cd /tmp
   BV="${BOOST_VERSION//./_}"
-  curl -fsSL --retry 3 -o boost.tar.bz2 \
-    "https://archives.boost.io/release/$BOOST_VERSION/source/boost_$BV.tar.bz2"
-  tar xf boost.tar.bz2
-  cd "boost_$BV"
-
-  ./bootstrap.sh --prefix="$INSTALL/boost" --without-libraries=python
-
-  # user-config pins the emscripten toolset; without it b2 tries gcc and
-  # produces native objects that silently poison the WASM link.
-  cat > user-config.jam <<'JAM'
-using clang : emscripten :
-  $(EMSDK)/upstream/emscripten/em++ :
-  <archiver>$(EMSDK)/upstream/emscripten/emar
-  <ranlib>$(EMSDK)/upstream/emscripten/emranlib
-  ;
-JAM
-
-  ./b2 -j"$NPROC" \
-    --user-config=user-config.jam \
-    --with-filesystem --with-thread --with-log --with-locale \
-    --with-regex --with-chrono --with-atomic --with-date_time \
-    --with-iostreams --with-system \
-    toolset=clang-emscripten \
-    target-os=linux \
-    link=static runtime-link=static threading=multi \
-    variant=release \
-    architecture=x86 address-model=32 \
-    cxxflags="$EM_FLAGS" \
-    cflags="$EM_CFLAGS" \
-    --prefix="$INSTALL/boost" \
-    install
+  mkdir -p /tmp/boost
+  curl -fL --retry 3 "https://archives.boost.org/release/$BOOST_VERSION/source/boost_$BV.tar.gz" | tar xz -C /tmp/boost
+  cd "/tmp/boost/boost_$BV"
+  ./bootstrap.sh --with-toolset=clang
+  # b2 needs an explicit emscripten toolset; without it it picks the host gcc
+  # and produces native objects that poison the WASM link with confusing
+  # undefined-symbol errors far from the real cause.
+  printf 'using clang : emscripten : em++ :\n<archiver>emar\n<ranlib>emranlib ;\n' > ~/user-config.jam
+  ./b2 \
+    toolset=clang-emscripten variant=release link=static \
+    threading=multi --layout=system --prefix="$INSTALL" \
+    --with-atomic --with-chrono --with-date_time --with-filesystem \
+    --with-iostreams --with-locale --with-log --with-nowide \
+    --with-program_options --with-regex --with-system --with-thread \
+    "define=BOOST_LOG_WITHOUT_SYSLOG=1" \
+    "define=BOOST_LOG_NO_THREADS=1" \
+    "cxxflags=-fwasm-exceptions -pthread" \
+    -j"$NPROC" install
   echo "[boost] done"
 else
   echo "[boost] cached"
 fi
 
-# ── oneTBB ────────────────────────────────────────────────────────────────────
-if [ ! -d "$INSTALL/tbb/include" ]; then
+# ── oneTBB ───────────────────────────────────────────────────────────────────
+if [ ! -d "$INSTALL/include/tbb" ]; then
   echo "[tbb] building $ONETBB_VERSION"
-  cd /tmp
-  rm -rf onetbb
-  git clone --depth 1 --branch "$ONETBB_VERSION" \
-    https://github.com/oneapi-src/oneTBB.git onetbb
-  cd onetbb
-
-  emcmake cmake -S . -B build -G Ninja \
+  rm -rf /tmp/onetbb
+  git clone --depth 1 --branch "$ONETBB_VERSION" https://github.com/oneapi-src/oneTBB.git /tmp/onetbb
+  emcmake cmake -S /tmp/onetbb -B /tmp/tbb-build -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="$INSTALL" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX="$INSTALL/tbb" \
-    -DTBB_TEST=OFF \
-    -DTBB_EXAMPLES=OFF \
-    -DTBB_STRICT=OFF \
-    -DTBBMALLOC_BUILD=OFF \
-    -DCMAKE_CXX_FLAGS="$EM_FLAGS" \
-    -DCMAKE_C_FLAGS="$EM_CFLAGS"
-
-  emmake cmake --build build -j"$NPROC"
-  emmake cmake --install build
+    -DTBB_TEST=OFF -DTBB_EXAMPLES=OFF -DTBB_STRICT=OFF -DTBBMALLOC_BUILD=OFF
+  emmake cmake --build /tmp/tbb-build -j"$NPROC"
+  emmake cmake --install /tmp/tbb-build
   echo "[tbb] done"
 else
   echo "[tbb] cached"
 fi
 
+# ── CGAL config ──────────────────────────────────────────────────────────────
+# Header-only. Plain cmake (not emcmake): this only installs headers and the
+# CMake config, no cross-compiled objects are produced.
+if [ ! -f "$INSTALL/lib/cmake/CGAL/CGALConfig.cmake" ]; then
+  echo "[cgal] installing $CGAL_VERSION"
+  curl -fL --retry 3 "https://github.com/CGAL/cgal/releases/download/v$CGAL_VERSION/CGAL-$CGAL_VERSION.tar.xz" | tar xJ -C /tmp
+  cmake -S "/tmp/CGAL-$CGAL_VERSION" -B /tmp/cgal-build -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="$INSTALL" -DCMAKE_BUILD_TYPE=Release \
+    -DGMP_INCLUDE_DIR="$INSTALL/include" -DGMP_LIBRARIES="$INSTALL/lib/libgmp.a" \
+    -DMPFR_INCLUDE_DIR="$INSTALL/include" -DMPFR_LIBRARIES="$INSTALL/lib/libmpfr.a"
+  cmake --build /tmp/cgal-build --target install
+  echo "[cgal] done"
+else
+  echo "[cgal] cached"
+fi
+
 echo
-echo "[deps] installed:"
-du -sh "$INSTALL"/* 2>/dev/null || true
+echo "[deps] installed into $INSTALL"
+ls "$INSTALL/lib"/*.a 2>/dev/null | head -20
