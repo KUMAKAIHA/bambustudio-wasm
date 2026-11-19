@@ -42,6 +42,15 @@ def _log(msg: str) -> None:
     print(msg)
 
 
+def _first_line(text: str) -> str:
+    """First meaningful line of a replacement block, used as an idempotency marker."""
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("//") and not line.startswith("#") and not line.startswith("/*"):
+            return line
+    return ""
+
+
 def patch(rel: str, replacements: list[tuple[str, str, str]]) -> None:
     """Apply exact-string replacements to one file.
 
@@ -55,7 +64,14 @@ def patch(rel: str, replacements: list[tuple[str, str, str]]) -> None:
     text = path.read_text(encoding="utf-8")
     original = text
     for anchor, repl, desc in replacements:
-        if repl in text and anchor not in text:
+        # Idempotency must key off a marker the replacement itself introduces.
+        # Testing "is the anchor still present" is wrong: anchors routinely
+        # survive inside the replacement ("#else // _WIN32" appears in both the
+        # new #elif arm and the untouched #else arm), so the check reports
+        # "already applied" and appends the block again -- duplicated function
+        # definitions that only fail later, at link time.
+        marker = _first_line(repl)
+        if marker and marker in text:
             _log("  OK   " + rel + "  [" + desc + ": already applied]")
             continue
         count = text.count(anchor)
