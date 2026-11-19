@@ -23,8 +23,14 @@ INSTALL="$ROOT/deps-install"
 mkdir -p "$INSTALL"
 
 NPROC=$(nproc)
-export CFLAGS="-sSUPPORT_LONGJMP=wasm -pthread -O2"
-export CXXFLAGS="-fwasm-exceptions -pthread -O2"
+
+# These flags are Emscripten-specific (-sSUPPORT_LONGJMP is an emcc setting the
+# host cc does not recognise). They must NEVER be exported globally: the
+# header-only installs below (eigen, nlohmann, cereal, CGAL) deliberately run
+# plain host cmake, and a leaked -s flag makes their compiler-ABI probe fail
+# with "cc: error: unrecognized command-line option".
+EM_CFLAGS="-sSUPPORT_LONGJMP=wasm -pthread -O2"
+EM_CXXFLAGS="-fwasm-exceptions -pthread -O2"
 
 echo "[deps] install root: $INSTALL"
 
@@ -40,7 +46,8 @@ if [ ! -f "$INSTALL/lib/libgmp.a" ]; then
   # --host and --disable-assembly then skip the probe entirely.
   printf 'gmp_cv_asm_label_suffix=":"\n' > /tmp/gmp_site.sh
   export gmp_cv_asm_label_suffix=":"
-  CONFIG_SITE=/tmp/gmp_site.sh emconfigure ./configure \
+  CONFIG_SITE=/tmp/gmp_site.sh CFLAGS="$EM_CFLAGS" CXXFLAGS="$EM_CXXFLAGS" \
+    emconfigure ./configure \
     --prefix="$INSTALL" \
     --host=wasm32-unknown-emscripten \
     --disable-shared --enable-static --disable-assembly --enable-cxx
@@ -57,7 +64,8 @@ if [ ! -f "$INSTALL/lib/libmpfr.a" ]; then
   DL=/tmp/deps-dl; mkdir -p "$DL"
   curl -fL --retry 3 "https://ftp.gnu.org/gnu/mpfr/mpfr-$MPFR_VERSION.tar.xz" | tar xJ -C "$DL"
   cd "$DL/mpfr-$MPFR_VERSION"
-  emconfigure ./configure \
+  CFLAGS="$EM_CFLAGS" CXXFLAGS="$EM_CXXFLAGS" \
+    emconfigure ./configure \
     --prefix="$INSTALL" --with-gmp="$INSTALL" \
     --disable-shared --enable-static
   emmake make -j"$NPROC"
@@ -73,7 +81,10 @@ fi
 if [ ! -d "$INSTALL/include/eigen3" ]; then
   echo "[eigen] installing"
   curl -fsSL "https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz" | tar xz -C /tmp
-  cmake -S /tmp/eigen-5.0.1 -B /tmp/eigen-build -G Ninja \
+  # Header-only install: plain HOST cmake. Passing Emscripten flags here makes
+  # the compiler-ABI probe fail with an unrecognised-option error.
+  env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
+    cmake -S /tmp/eigen-5.0.1 -B /tmp/eigen-build -G Ninja \
     -DCMAKE_INSTALL_PREFIX="$INSTALL" -DBUILD_TESTING=OFF
   cmake --build /tmp/eigen-build --target install
   echo "[eigen] done"
@@ -84,7 +95,8 @@ fi
 if [ ! -f "$INSTALL/share/cmake/nlohmann_json/nlohmann_jsonConfig.cmake" ]; then
   echo "[nlohmann] installing"
   git clone --depth 1 --branch v3.11.3 https://github.com/nlohmann/json.git /tmp/nlohmann
-  cmake -S /tmp/nlohmann -B /tmp/nlohmann-build -G Ninja \
+  env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
+    cmake -S /tmp/nlohmann -B /tmp/nlohmann-build -G Ninja \
     -DCMAKE_INSTALL_PREFIX="$INSTALL" -DJSON_BuildTests=OFF -DJSON_Install=ON
   cmake --build /tmp/nlohmann-build --target install
   echo "[nlohmann] done"
@@ -95,7 +107,8 @@ fi
 if [ ! -f "$INSTALL/share/cmake/cereal/cerealConfig.cmake" ]; then
   echo "[cereal] installing"
   git clone --depth 1 --branch v$CEREAL_VERSION https://github.com/USCiLab/cereal.git /tmp/cereal
-  cmake -S /tmp/cereal -B /tmp/cereal-build -G Ninja \
+  env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
+    cmake -S /tmp/cereal -B /tmp/cereal-build -G Ninja \
     -DCMAKE_INSTALL_PREFIX="$INSTALL" -DJUST_INSTALL_CEREAL=ON \
     -DSKIP_PERFORMANCE_COMPARISON=ON -DBUILD_SANDBOX=OFF -DBUILD_DOC=OFF
   cmake --build /tmp/cereal-build --target install
@@ -111,7 +124,8 @@ if [ ! -f "$INSTALL/lib/libexpat.a" ]; then
   emcmake cmake -S "/tmp/expat-$EXPAT_VERSION" -B /tmp/expat-build -G Ninja \
     -DCMAKE_INSTALL_PREFIX="$INSTALL" \
     -DEXPAT_BUILD_TOOLS=OFF -DEXPAT_BUILD_EXAMPLES=OFF \
-    -DEXPAT_BUILD_TESTS=OFF -DEXPAT_SHARED_LIBS=OFF
+    -DEXPAT_BUILD_TESTS=OFF -DEXPAT_SHARED_LIBS=OFF \
+    "-DCMAKE_C_FLAGS=$EM_CFLAGS" "-DCMAKE_CXX_FLAGS=$EM_CXXFLAGS"
   emmake cmake --build /tmp/expat-build --target install
   echo "[expat] done"
 else
@@ -125,7 +139,8 @@ if [ ! -f "$INSTALL/lib/libnlopt.a" ]; then
   emcmake cmake -S "/tmp/nlopt-$NLOPT_VERSION" -B /tmp/nlopt-build -G Ninja \
     -DCMAKE_INSTALL_PREFIX="$INSTALL" \
     -DNLOPT_PYTHON=OFF -DNLOPT_OCTAVE=OFF -DNLOPT_SWIG=OFF -DNLOPT_MATLAB=OFF \
-    -DNLOPT_GUILE=OFF -DNLOPT_JAVA=OFF -DNLOPT_CXX=ON -DBUILD_SHARED_LIBS=OFF
+    -DNLOPT_GUILE=OFF -DNLOPT_JAVA=OFF -DNLOPT_CXX=ON -DBUILD_SHARED_LIBS=OFF \
+    "-DCMAKE_C_FLAGS=$EM_CFLAGS" "-DCMAKE_CXX_FLAGS=$EM_CXXFLAGS"
   emmake cmake --build /tmp/nlopt-build --target install
   echo "[nlopt] done"
 else
@@ -181,7 +196,8 @@ fi
 if [ ! -f "$INSTALL/lib/cmake/CGAL/CGALConfig.cmake" ]; then
   echo "[cgal] installing $CGAL_VERSION"
   curl -fL --retry 3 "https://github.com/CGAL/cgal/releases/download/v$CGAL_VERSION/CGAL-$CGAL_VERSION.tar.xz" | tar xJ -C /tmp
-  cmake -S "/tmp/CGAL-$CGAL_VERSION" -B /tmp/cgal-build -G Ninja \
+  env -u CFLAGS -u CXXFLAGS -u LDFLAGS \
+    cmake -S "/tmp/CGAL-$CGAL_VERSION" -B /tmp/cgal-build -G Ninja \
     -DCMAKE_INSTALL_PREFIX="$INSTALL" -DCMAKE_BUILD_TYPE=Release \
     -DGMP_INCLUDE_DIR="$INSTALL/include" -DGMP_LIBRARIES="$INSTALL/lib/libgmp.a" \
     -DMPFR_INCLUDE_DIR="$INSTALL/include" -DMPFR_LIBRARIES="$INSTALL/lib/libmpfr.a"
