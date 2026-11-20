@@ -11,6 +11,26 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 
+# ── Toolchain flags every translation unit needs ─────────────────────────────
+#
+# These are not optional under Emscripten for this codebase:
+#   -pthread              Boost's config refuses to compile without it:
+#                         "Compiler threading support is not turned on", then
+#                         cascades into "Boost threads unavailable on this
+#                         platform" across every Boost.Thread header. The whole
+#                         slicer is built around threads and TBB, so this is
+#                         load-bearing, not a nicety.
+#   -fwasm-exceptions     matches how the dependencies (Boost, TBB) were built;
+#                         mixing wasm-exceptions with the JS-based fallback at
+#                         link time is an error.
+#   -sSUPPORT_LONGJMP=wasm  same reason: exceptions and longjmp have to use the
+#                         same mechanism across all objects.
+# These mirror EXTRA_CXX_FLAGS / EXTRA_C_FLAGS in scripts/build-deps.sh.
+set(BSW_CXX_FLAGS "-pthread -fwasm-exceptions")
+set(BSW_C_FLAGS   "-pthread -sSUPPORT_LONGJMP=wasm")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${BSW_CXX_FLAGS}")
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} ${BSW_C_FLAGS}")
+
 # Inject our Find modules before any system ones, so the WASM dependency
 # locations win over whatever happens to be installed on the build machine.
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -41,6 +61,8 @@ set(SLIC3R_GUI              OFF CACHE BOOL "" FORCE)
 set(SLIC3R_STATIC           ON  CACHE BOOL "" FORCE)
 set(SLIC3R_BUILD_TESTS      OFF CACHE BOOL "" FORCE)
 set(SLIC3R_BUILD_SANDBOXES  OFF CACHE BOOL "" FORCE)
+# PCH is off: pchheader.cpp would otherwise be compiled as a real translation
+# unit with a preamble that mismatches the per-target flag sets under Emscripten.
 set(SLIC3R_PCH              OFF CACHE BOOL "" FORCE)
 set(BUILD_BBS_TEST_TOOLS    OFF CACHE BOOL "" FORCE)
 
