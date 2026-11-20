@@ -791,10 +791,13 @@ def patch_strip_sla() -> None:
 
     # Keep the OpenVDBUtils translation unit out of the build regardless of the
     # upstream guard, which keys off a target that will never exist here.
+    # The upstream line ends the add_library() argument list, so the closing
+    # paren must survive: commenting out the whole line leaves
+    # "Function missing ending \)". Keep the paren outside the comment.
     patch("src/libslic3r/CMakeLists.txt", [(
-        "    ${OpenVDBUtils_SOURCES}",
-        "    # OpenVDB has no WASM build; this stays empty.\n"
-        "    # ${OpenVDBUtils_SOURCES}",
+        "${OpenVDBUtils_SOURCES})",
+        "# OpenVDB has no WASM build; the variable is empty.\n"
+        "    )",
         "OpenVDBUtils excluded",
     )])
 
@@ -836,6 +839,25 @@ def main() -> int:
     ]:
         _log(step)
         fn()
+
+    # Structural check: the CMakeList edits are line-surgery and can silently
+    # leave a function unclosed, which CMake only reports as
+    # "Function missing ending )" with no pointer to the edit that caused it.
+    # Balance the parens here instead.
+    for rel in ("src/libslic3r/CMakeLists.txt", "CMakeLists.txt"):
+        f = SRC / rel
+        if not f.exists():
+            continue
+        t = f.read_text(encoding="utf-8")
+        # Ignore comments: a paren inside a comment does not count for CMake.
+        stripped = "\n".join(
+            line for line in t.splitlines() if not line.lstrip().startswith("#")
+        )
+        if stripped.count("(") != stripped.count(")"):
+            _failures.append(
+                f"{rel}: unbalanced parentheses ({stripped.count('(')} open vs "
+                f"{stripped.count(')')} close) -- a patch likely commented out a closing paren"
+            )
 
     print()
     if _failures:
