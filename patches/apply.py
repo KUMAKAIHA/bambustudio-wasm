@@ -522,6 +522,133 @@ namespace Slic3r {""",
     )])
 
 
+# 11. Strip the OpenCV and assimp modules.
+#
+#     TexturePainting.cpp (929 lines) is OpenCV-based texture-to-painting
+#     conversion; AssimpImport.cpp imports FBX/3DS through assimp. Neither sits
+#     on the headless slicing path, and neither library can be cross-compiled
+#     here in reasonable time, so both are dropped and stubbed.
+#
+#     The stubs keep the declared entry points linkable for the few call sites
+#     that remain (Model.cpp:424 reaches load_assimp_textured_model only for
+#     formats the headless build never loads).
+def patch_strip_cv_assimp() -> None:
+    patch("src/libslic3r/CMakeLists.txt", [(
+        """    Format/AssimpImport.hpp
+    Format/AssimpImport.cpp
+""",
+        """    Format/AssimpImport.hpp
+# Format/AssimpImport.cpp is OMITTED for WASM: it needs assimp, a desktop-only
+# import library. load_assimp_textured_model is stubbed.
+    Format/AssimpImport_wasm_stub.cpp
+""",
+        "drop AssimpImport.cpp, register stub",
+    )])
+
+    patch("src/libslic3r/CMakeLists.txt", [(
+        """    TexturePainting.hpp
+    TexturePainting.cpp
+""",
+        """    TexturePainting.hpp
+# TexturePainting.cpp is OMITTED for WASM: it needs OpenCV. Its declared entry
+# points are stubbed.
+    TexturePainting_wasm_stub.cpp
+""",
+        "drop TexturePainting.cpp, register stub",
+    )])
+
+    assimp_stub = (
+        "// Provided by patches/apply.py: Format/AssimpImport.cpp is not built for\n"
+        "// WASM. assimp is a desktop-only import library.\n"
+        "#include \"AssimpImport.hpp\"\n"
+        "\n"
+        "#include \"../TexturePainting.hpp\"\n"
+        "\n"
+        "namespace Slic3r {\n"
+        "\n"
+        "bool load_assimp_textured_model(const std::string &, TexturedMesh &, std::string *)\n"
+        "{\n"
+        "    return false;\n"
+        "}\n"
+        "\n"
+        "} // namespace Slic3r\n"
+    )
+    ap = SRC / "src/libslic3r/Format/AssimpImport_wasm_stub.cpp"
+    if ap.exists() and ap.read_text(encoding="utf-8") == assimp_stub:
+        _log("  OK   Format/AssimpImport_wasm_stub.cpp  [already present]")
+    elif DRY_RUN:
+        _log("  WOULD WRITE Format/AssimpImport_wasm_stub.cpp")
+    else:
+        ap.write_text(assimp_stub, encoding="utf-8")
+        _log("  WROTE Format/AssimpImport_wasm_stub.cpp")
+
+    # TexturePainting exposes a wide surface; emit the definitions it declares
+    # and nothing else. The bodies are unreachable on this platform.
+    tp_stub = (
+        "// Provided by patches/apply.py: TexturePainting.cpp is not built for WASM\n"
+        "// because it needs OpenCV. Every declared entry point is provided inert;\n"
+        "// none of these is reachable from the headless slicing path.\n"
+        "#include \"TexturePainting.hpp\"\n"
+        "\n"
+        "namespace Slic3r {\n"
+        "\n"
+        "MeshRepairCachePtr make_mesh_repair_cache() { return {}; }\n"
+        "\n"
+        "bool mesh_repair_cache_can_skip_input(const MeshRepairCachePtr &,\n"
+        "                                      std::size_t,\n"
+        "                                      const TexturePaintingSettings &)\n"
+        "{ return false; }\n"
+        "\n"
+        "bool mesh_repair_cache_win10_failed(const MeshRepairCachePtr &) { return true; }\n"
+        "\n"
+        "bool copy_prepared_mesh_from_cache(const MeshRepairCachePtr &, PaintedMesh &)\n"
+        "{ return false; }\n"
+        "\n"
+        "bool cluster_from_repair_cache(PaintedMesh &, const TexturePaintingSettings &,\n"
+        "                               PaintProgressCallback, PaintCancelCallback)\n"
+        "{ return false; }\n"
+        "\n"
+        "bool texture_to_painting(const TexturedMesh &, PaintedMesh &,\n"
+        "                         const TexturePaintingSettings &,\n"
+        "                         PaintProgressCallback, PaintCancelCallback)\n"
+        "{ return false; }\n"
+        "\n"
+        "bool face_colors_to_painting(const TexturedMesh &, PaintedMesh &,\n"
+        "                             const TexturePaintingSettings &,\n"
+        "                             PaintProgressCallback, PaintCancelCallback)\n"
+        "{ return false; }\n"
+        "\n"
+        "bool standard_3mf_colors_to_painting(const TexturedMesh &, PaintedMesh &,\n"
+        "                                     const TexturePaintingSettings &,\n"
+        "                                     PaintProgressCallback, PaintCancelCallback)\n"
+        "{ return false; }\n"
+        "\n"
+        "std::vector<FilamentMatch> match_clusters_to_filaments(\n"
+        "    const std::vector<std::array<std::size_t, 3>> &,\n"
+        "    const std::vector<std::array<float, 4>> &,\n"
+        "    const std::vector<std::string> &)\n"
+        "{ return {}; }\n"
+        "\n"
+        "double compute_delta_e(const std::array<std::size_t, 3> &,\n"
+        "                       const std::array<float, 4> &)\n"
+        "{ return 0.0; }\n"
+        "\n"
+        "double compute_delta_e(const std::array<std::size_t, 3> &,\n"
+        "                       const std::array<std::size_t, 3> &)\n"
+        "{ return 0.0; }\n"
+        "\n"
+        "} // namespace Slic3r\n"
+    )
+    tp = SRC / "src/libslic3r/TexturePainting_wasm_stub.cpp"
+    if tp.exists() and tp.read_text(encoding="utf-8") == tp_stub:
+        _log("  OK   TexturePainting_wasm_stub.cpp  [already present]")
+    elif DRY_RUN:
+        _log("  WOULD WRITE TexturePainting_wasm_stub.cpp")
+    else:
+        tp.write_text(tp_stub, encoding="utf-8")
+        _log("  WROTE TexturePainting_wasm_stub.cpp")
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -551,7 +678,8 @@ def main() -> int:
         ("[7] ClipperZUtils include fix", patch_clipperz_includes),
         ("[9] strip the OCCT STEP importer", patch_strip_step),
         ("[10] strip svg and TextShape", patch_strip_occt_modules),
-        ("[11] bridge injection", patch_bridge),
+        ("[11] strip OpenCV and assimp modules", patch_strip_cv_assimp),
+        ("[12] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
