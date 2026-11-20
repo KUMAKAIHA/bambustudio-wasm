@@ -81,6 +81,28 @@ endif()
 # Deliberately omitted versus the desktop build:
 #   libnoise  -- only reached through the GUI's fuzzy-skin preview
 #   imgui / imguizmo / hidapi -- GUI only, gated behind SLIC3R_GUI upstream
+# ── Targets libslic3r's siblings link without ever find_package-ing ──────────
+#
+# libnest2d does target_link_libraries(... NLopt::nlopt ...) but nothing in the
+# tree calls find_package(NLopt) first, so the name is simply never defined.
+# On desktop it works only because the system NLopt config file defines the
+# imported target as a side effect of some other find. There is no equivalent
+# under WASM, so define the INTERFACE target here, before any subdirectory that
+# links it is added.
+#
+# Neither NLopt nor libnoise is on the headless critical path: NLopt backs
+# libnest2d's optional nester optimisation, libnoise backs the fuzzy-skin noise
+# generators. Empty INTERFACE targets keep both names resolvable.
+if(NOT TARGET NLopt::nlopt)
+  add_library(NLopt::nlopt INTERFACE IMPORTED GLOBAL)
+endif()
+if(NOT TARGET noise::noise)
+  add_library(noise::noise INTERFACE IMPORTED GLOBAL)
+endif()
+set(NLopt_FOUND TRUE)
+set(libnoise_FOUND TRUE)
+set(LIBNOISE_FOUND TRUE)
+
 set(BS_SRC "${BSW_SRC}/src")
 
 add_subdirectory("${BS_SRC}/build-utils"    build-utils)
