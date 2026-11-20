@@ -207,15 +207,23 @@ if [ ! -f "$INSTALL/lib/libcrypto.a" ]; then
   DL=/tmp/deps-dl; mkdir -p "$DL"
   curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz" | tar xz -C "$DL"
   cd "$DL/openssl-$OPENSSL_VERSION"
-  emconfigure ./Configure \
+  # Do NOT wrap this in emconfigure. emconfigure prefixes CC with its emcc path,
+  # and OpenSSL's Configure then prepends the compiler path it already resolved,
+  # producing the nonsense "/opt/emsdk/.../em/opt/emsdk/.../emcc: not found".
+  # Pass the compilers explicitly instead.
+  CC="${EMSDK:-/opt/emsdk}/upstream/emscripten/emcc" \
+  CXX="${EMSDK:-/opt/emsdk}/upstream/emscripten/em++" \
+  AR="${EMSDK:-/opt/emsdk}/upstream/emscripten/emar" \
+  RANLIB="${EMSDK:-/opt/emsdk}/upstream/emscripten/emranlib" \
+  ./Configure \
     linux-x32 \
     no-asm no-shared no-async no-tests no-engine \
-    no-dso no-ssl3 no-comp no-hw no-threads \
+    no-dso no-ssl3 no-comp no-threads \
     --prefix="$INSTALL" \
     --openssldir="$INSTALL/ssl" \
     CFLAGS="$EM_CFLAGS"
-  emmake make -j"$NPROC" build_libs
-  emmake make install_sw
+  make -j"$NPROC" build_libs
+  make install_sw
   echo "[openssl] done"
 else
   echo "[openssl] cached"
