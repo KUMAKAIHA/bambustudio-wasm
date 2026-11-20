@@ -132,6 +132,15 @@ endforeach()
 #
 # CONFIG mode uses the config file oneTBB actually installs, which is both
 # correct and the supported path for modern TBB.
+# CONFIG mode does not walk CMAKE_PREFIX_PATH looking for lib/cmake/<name>;
+# it wants either <prefix>/lib/cmake/<name> discoverable or TBB_DIR pointed at
+# the config file directly. Point at it explicitly rather than relying on where
+# oneTBB happened to install.
+set(DEPS_INSTALL "$ENV{DEPS_INSTALL}" CACHE PATH "WASM dependency prefix")
+if(DEPS_INSTALL)
+  list(APPEND CMAKE_PREFIX_PATH "${DEPS_INSTALL}")
+  set(TBB_DIR "${DEPS_INSTALL}/lib/cmake/TBB" CACHE PATH "" FORCE)
+endif()
 find_package(TBB REQUIRED CONFIG)
 
 # BambuStudio's FindTBB module only fills TBB_INCLUDE_DIRS / TBB_LIBRARIES; it
