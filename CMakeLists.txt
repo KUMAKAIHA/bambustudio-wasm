@@ -29,6 +29,17 @@ set(CMAKE_C_STANDARD 11)
 set(BSW_CXX_FLAGS "-pthread -fwasm-exceptions")
 set(BSW_C_FLAGS   "-pthread -sSUPPORT_LONGJMP=wasm")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${BSW_CXX_FLAGS}")
+
+# BBL_RELEASE_TO_PUBLIC gates release-only log masking in Desensitize.cpp, which
+# does `#if BBL_RELEASE_TO_PUBLIC`. Left undefined, the preprocessor treats it as
+# 0 in some contexts but the file also uses it where an integer is required:
+#   Desensitize.cpp:8:26: error: expected value in expression
+# Define it explicitly. 0 keeps the non-public behaviour (no masking overhead),
+# and the community build has no "public release" notion to honour.
+set(BBL_RELEASE_TO_PUBLIC 0 CACHE STRING "BambuStudio public-release build flag")
+
+# OCCT is not in the WASM build; STEP.hpp guards its OpenCASCADE includes on this.
+add_compile_definitions(SLIC3R_WASM_NO_OCCT)
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} ${BSW_C_FLAGS}")
 
 # Inject our Find modules before any system ones, so the WASM dependency

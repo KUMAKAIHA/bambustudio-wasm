@@ -314,6 +314,64 @@ def patch_clipperz_includes() -> None:
     )])
 
 
+# 8b. Format/STEP.hpp -- OCCT headers are unconditional.
+#
+#     Model.hpp includes this header unconditionally, and the header immediately
+#     pulls in five OpenCASCADE headers with no guard at all. With OCCT excluded
+#     from the WASM build those files do not exist:
+#
+#       Format/STEP.hpp:3:10: fatal error: 'XCAFDoc_DocumentTool.hxx' file not found
+#
+#     Guard the OCCT-dependent portion. STEP import/export is a desktop-only
+#     feature (it is reached through the GUI file dialogs), so on WASM the whole
+#     translation unit reduces to an empty, includable header.
+def patch_step_header() -> None:
+    patch("src/libslic3r/Format/STEP.hpp", [(
+        '''#ifndef slic3r_Format_STEP_hpp_
+#define slic3r_Format_STEP_hpp_
+#include "XCAFDoc_DocumentTool.hxx"''',
+        '''#ifndef slic3r_Format_STEP_hpp_
+#define slic3r_Format_STEP_hpp_
+
+// OCCT is not part of the WebAssembly build. STEP import/export is desktop-only
+// (reached through the GUI), so the header becomes a no-op there. The guard has
+// to start before the first OCCT include: there is no partial form of this file
+// that compiles without the OCCT type definitions.
+#if !defined(SLIC3R_WASM_NO_OCCT)
+#include "XCAFDoc_DocumentTool.hxx"''',
+        "STEP.hpp OCCT guard open",
+    ), (
+        '''namespace fs = boost::filesystem;''',
+        '''namespace fs = boost::filesystem;''',
+        "STEP.hpp anchor",
+    )])
+
+
+def patch_step_close() -> None:
+    path = SRC / "src/libslic3r/Format/STEP.hpp"
+    if not path.exists():
+        _failures.append("Format/STEP.hpp missing")
+        return
+    text = path.read_text(encoding="utf-8")
+    if text.rstrip().endswith("#endif // SLIC3R_WASM_NO_OCCT"):
+        _log("  OK   Format/STEP.hpp  [OCCT guard close: already applied]")
+        return
+    if "SLIC3R_WASM_NO_OCCT" not in text:
+        _failures.append("Format/STEP.hpp: guard open not applied, refusing to close")
+        return
+    # The file ends with the include-guard #endif; insert ours just before it.
+    idx = text.rstrip().rfind("#endif")
+    if idx < 0:
+        _failures.append("Format/STEP.hpp: closing #endif not found")
+        return
+    text = text[:idx] + "#endif // SLIC3R_WASM_NO_OCCT\n" + text[idx:]
+    if DRY_RUN:
+        _log("  WOULD CLOSE Format/STEP.hpp  [OCCT guard]")
+        return
+    path.write_text(text, encoding="utf-8")
+    _log("  CLOSED Format/STEP.hpp  [OCCT guard]")
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -341,7 +399,9 @@ def main() -> int:
         ("[5] Arachne/WallToolPaths.hpp", patch_arachne),
         ("[6] CGAL option block guard", patch_cgal_options),
         ("[7] ClipperZUtils include fix", patch_clipperz_includes),
-        ("[8] bridge injection", patch_bridge),
+        ("[8] STEP.hpp OCCT guard", patch_step_header),
+        ("[8b] STEP.hpp OCCT guard close", patch_step_close),
+        ("[9] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
