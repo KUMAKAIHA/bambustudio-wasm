@@ -134,6 +134,14 @@ jobs:
             echo "cereal_DIR=$INSTALL/share/cmake/cereal"
           } >> "$GITHUB_ENV"
 
+      # zlib and libpng come from Emscripten's own ports rather than a manual
+      # cross-compile, then get CMake config files synthesised on top.
+      - name: Build zlib and libpng ports
+        run: |
+          source /opt/emsdk/emsdk_env.sh
+          chmod +x scripts/build-zlibpng.sh
+          ./scripts/build-zlibpng.sh
+
       # ── Source patches ────────────────────────────────────────────────────
       - name: Apply WASM compatibility patches
         run: |

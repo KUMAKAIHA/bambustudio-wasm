@@ -163,7 +163,14 @@ if(NOT TARGET TBB::tbbmalloc)
   add_library(TBB::tbbmalloc ALIAS TBB::tbb)
 endif()
 
-# ZLIB and libpng are reached through libslic3r's PNG reader.
+# ZLIB and libpng are reached through libslic3r's PNG reader. Both come from
+# Emscripten's ports, exposed under the dependency prefix with synthesised
+# CMake config files (see scripts/build-zlibpng.sh). Point at those configs
+# directly: CONFIG mode does not search the prefix for lib/cmake/<name>.
+if(DEPS_INSTALL)
+  set(ZLIB_DIR "${DEPS_INSTALL}/lib/cmake/ZLIB" CACHE PATH "" FORCE)
+  set(PNG_DIR  "${DEPS_INSTALL}/lib/cmake/PNG"  CACHE PATH "" FORCE)
+endif()
 find_package(ZLIB REQUIRED)
 find_package(PNG REQUIRED)
 
