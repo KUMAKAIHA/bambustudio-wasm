@@ -64,14 +64,19 @@ def patch(rel: str, replacements: list[tuple[str, str, str]]) -> None:
     text = path.read_text(encoding="utf-8")
     original = text
     for anchor, repl, desc in replacements:
-        # Idempotency must key off a marker the replacement itself introduces.
-        # Testing "is the anchor still present" is wrong: anchors routinely
-        # survive inside the replacement ("#else // _WIN32" appears in both the
-        # new #elif arm and the untouched #else arm), so the check reports
-        # "already applied" and appends the block again -- duplicated function
-        # definitions that only fail later, at link time.
-        marker = _first_line(repl)
-        if marker and marker in text:
+        # Idempotency must test for the WHOLE replacement, not a marker line.
+        # Two failure modes ruled out a line-based check:
+        #   1. Testing "is the anchor still present" is unsound -- anchors
+        #      survive inside their own replacement ("#else // _WIN32" appears in
+        #      both the new #elif arm and the untouched #else arm), so a second
+        #      run re-appended the block.
+        #   2. Testing the replacement's first line is unsound for a different
+        #      reason: several replacements legitimately share a first line
+        #      (CGAL, OpenCV and OCCT all begin "if(NOT SLIC3R_WASM)"), so once
+        #      the first had been applied the other two were skipped silently --
+        #      which is exactly how OpenCV slipped through to CMake configure.
+        # A full-block test is unambiguous.
+        if repl in text:
             _log("  OK   " + rel + "  [" + desc + ": already applied]")
             continue
         count = text.count(anchor)
@@ -142,16 +147,26 @@ endif()""",
         (
             "find_package(OpenCV REQUIRED core)",
             """if(NOT SLIC3R_WASM)
-find_package(OpenCV REQUIRED core)
+  # OpenCV is GUI-only (image features); the headless kernel omits it.
+  find_package(OpenCV REQUIRED core)
 endif()""",
             "OpenCV conditional",
         ),
         (
             "find_package(OpenCASCADE REQUIRED)",
             """if(NOT SLIC3R_WASM)
-find_package(OpenCASCADE REQUIRED)
+  # OCCT is GUI-only (STEP/IGES import); the headless kernel omits it.
+  find_package(OpenCASCADE REQUIRED)
 endif()""",
             "OCCT conditional",
+        ),
+        (
+            "find_package(assimp REQUIRED)",
+            """if(NOT SLIC3R_WASM)
+  # assimp is GUI-only (mesh import formats); the headless kernel omits it.
+  find_package(assimp REQUIRED)
+endif()""",
+            "assimp conditional",
         ),
     ])
 

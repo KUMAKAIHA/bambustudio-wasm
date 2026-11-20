@@ -15,6 +15,13 @@ set(CMAKE_C_STANDARD 11)
 # locations win over whatever happens to be installed on the build machine.
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# libslic3r's CMakeLists does include(PrecompiledHeader), and that module lives
+# in BambuStudio's own cmake/modules. That path is never on CMAKE_MODULE_PATH
+# when libslic3r is added directly as a subdirectory instead of going through
+# the top-level BambuStudio project, so configure dies at line 4 of
+# libslic3r/CMakeLists.txt with "include could not find requested file".
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/BambuStudio/cmake/modules")
+
 # ── Force the headless WASM configuration ────────────────────────────────────
 # SLIC3R_GUI stays OFF: the GUI is a separate, later concern. This target is
 # the slicing kernel, which is what makes the browser port viable at all --
