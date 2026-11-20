@@ -353,23 +353,66 @@ def patch_step_close() -> None:
         _failures.append("Format/STEP.hpp missing")
         return
     text = path.read_text(encoding="utf-8")
-    if text.rstrip().endswith("#endif // SLIC3R_WASM_NO_OCCT"):
+    marker = "#endif // SLIC3R_WASM_NO_OCCT"
+    # Count occurrences, not endswith: the insertion point is before the final
+    # include-guard #endif, so the marker is never at the very end of the file
+    # and an endswith() test reports "not applied" on every re-run -- which is
+    # exactly how a duplicate #endif got in and produced
+    # "#endif without #if" at STEP.hpp:156.
+    if text.count(marker) >= 1:
         _log("  OK   Format/STEP.hpp  [OCCT guard close: already applied]")
         return
     if "SLIC3R_WASM_NO_OCCT" not in text:
         _failures.append("Format/STEP.hpp: guard open not applied, refusing to close")
         return
-    # The file ends with the include-guard #endif; insert ours just before it.
     idx = text.rstrip().rfind("#endif")
     if idx < 0:
         _failures.append("Format/STEP.hpp: closing #endif not found")
         return
-    text = text[:idx] + "#endif // SLIC3R_WASM_NO_OCCT\n" + text[idx:]
+    text = text[:idx] + marker + "\n" + text[idx:]
     if DRY_RUN:
         _log("  WOULD CLOSE Format/STEP.hpp  [OCCT guard]")
         return
     path.write_text(text, encoding="utf-8")
     _log("  CLOSED Format/STEP.hpp  [OCCT guard]")
+
+
+# 8c. Model.hpp -- STEP types used outside the guarded header.
+#
+#     Guarding Format/STEP.hpp alone is not enough: Model.hpp uses four STEP
+#     types in its own declarations, so hiding the header just moves the error:
+#
+#       Model.hpp:1714:17: error: use of undeclared identifier 'StepImportTreeNode'
+#       Model.hpp:1815:33: error: unknown type name 'ImportStepProgressFn'
+#       Model.hpp:1816:33: error: unknown type name 'StepIsUtf8Fn'
+#       Model.hpp:1817:59: error: no member named 'Step' in namespace 'Slic3r'
+#
+#     Provide minimal stand-ins under WASM so the declarations stay well-formed.
+#     Nothing reaches them: STEP import is a GUI-only path and the headless
+#     engine never calls load_step/export_step.
+def patch_model_step_types() -> None:
+    patch("src/libslic3r/Model.hpp", [(
+        '#include "Format/STEP.hpp"',
+        '''// OCCT-based STEP import is not part of the WASM build, so Format/STEP.hpp
+// compiles to nothing there. Model.hpp still declares members of those types,
+// so give the names a minimal definition instead of hiding the includes.
+#if defined(SLIC3R_WASM_NO_OCCT)
+namespace Slic3r {
+class Step;
+struct StepImportTreeNode {
+    std::wstring name;
+    std::wstring uuid;
+    std::wstring type;
+    std::vector<StepImportTreeNode> children;
+};
+using StepIsUtf8Fn       = std::function<bool(std::string const &)>;
+using ImportStepProgressFn = std::function<void(int)>;
+} // namespace Slic3r
+#else
+#include "Format/STEP.hpp"
+#endif''',
+        "Model.hpp STEP type stand-ins",
+    )])
 
 
 def patch_bridge() -> None:
@@ -401,6 +444,7 @@ def main() -> int:
         ("[7] ClipperZUtils include fix", patch_clipperz_includes),
         ("[8] STEP.hpp OCCT guard", patch_step_header),
         ("[8b] STEP.hpp OCCT guard close", patch_step_close),
+        ("[8c] Model.hpp STEP type stand-ins", patch_model_step_types),
         ("[9] bridge injection", patch_bridge),
     ]:
         _log(step)
