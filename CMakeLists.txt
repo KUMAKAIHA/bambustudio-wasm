@@ -192,6 +192,26 @@ endif()
 if(NOT TARGET noise::noise)
   add_library(noise::noise INTERFACE IMPORTED GLOBAL)
 endif()
+
+# Every GUI-only dependency that the patches stop find_package-ing is still
+# linked by name further down. Creating the targets up front is what makes the
+# wrapping safe: the link lines resolve, and no code is compiled against a
+# library that does not exist for WASM.
+#
+# This is the same set the patcher wraps in libslic3r/CMakeLists.txt; keep the
+# two lists in step.
+foreach(_gui_only_target IN ITEMS
+    assimp::assimp
+    CGAL::CGAL
+    opencv_world
+    OpenCASCADE::TKernel
+    Freetype::Freetype
+    Qhull::qhullcpp
+    Qhull::qhull_r)
+  if(NOT TARGET ${_gui_only_target})
+    add_library(${_gui_only_target} INTERFACE IMPORTED GLOBAL)
+  endif()
+endforeach()
 set(NLopt_FOUND TRUE)
 set(libnoise_FOUND TRUE)
 set(LIBNOISE_FOUND TRUE)
