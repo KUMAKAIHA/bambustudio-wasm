@@ -325,94 +325,55 @@ def patch_clipperz_includes() -> None:
 #     Guard the OCCT-dependent portion. STEP import/export is a desktop-only
 #     feature (it is reached through the GUI file dialogs), so on WASM the whole
 #     translation unit reduces to an empty, includable header.
-def patch_step_header() -> None:
-    patch("src/libslic3r/Format/STEP.hpp", [(
-        '''#ifndef slic3r_Format_STEP_hpp_
-#define slic3r_Format_STEP_hpp_
-#include "XCAFDoc_DocumentTool.hxx"''',
-        '''#ifndef slic3r_Format_STEP_hpp_
-#define slic3r_Format_STEP_hpp_
-
-// OCCT is not part of the WebAssembly build. STEP import/export is desktop-only
-// (reached through the GUI), so the header becomes a no-op there. The guard has
-// to start before the first OCCT include: there is no partial form of this file
-// that compiles without the OCCT type definitions.
-#if !defined(SLIC3R_WASM_NO_OCCT)
-#include "XCAFDoc_DocumentTool.hxx"''',
-        "STEP.hpp OCCT guard open",
-    ), (
-        '''namespace fs = boost::filesystem;''',
-        '''namespace fs = boost::filesystem;''',
-        "STEP.hpp anchor",
+def patch_strip_step() -> None:
+    patch("src/libslic3r/CMakeLists.txt", [(
+        """    Format/STEP.cpp
+    Format/STEP.hpp
+""",
+        """# Format/STEP.cpp and Format/STEP.hpp are OMITTED for WASM: they are the only
+# files that include OpenCASCADE headers, and OCCT is not part of this build.
+""",
+        "drop STEP sources from the build",
     )])
 
-
-def patch_step_close() -> None:
-    path = SRC / "src/libslic3r/Format/STEP.hpp"
+    # Model.cpp: remove Model::read_from_step in full.
+    path = SRC / "src/libslic3r/Model.cpp"
     if not path.exists():
-        _failures.append("Format/STEP.hpp missing")
+        _failures.append("Model.cpp missing")
         return
     text = path.read_text(encoding="utf-8")
-    marker = "#endif // SLIC3R_WASM_NO_OCCT"
-    # Count occurrences, not endswith: the insertion point is before the final
-    # include-guard #endif, so the marker is never at the very end of the file
-    # and an endswith() test reports "not applied" on every re-run -- which is
-    # exactly how a duplicate #endif got in and produced
-    # "#endif without #if" at STEP.hpp:156.
-    if text.count(marker) >= 1:
-        _log("  OK   Format/STEP.hpp  [OCCT guard close: already applied]")
+    if "READ_FROM_STEP_REMOVED_FOR_WASM" in text:
+        _log("  OK   Model.cpp  [read_from_step removed: already applied]")
         return
-    if "SLIC3R_WASM_NO_OCCT" not in text:
-        _failures.append("Format/STEP.hpp: guard open not applied, refusing to close")
+    start = text.find("Model Model::read_from_step(")
+    if start < 0:
+        _failures.append("Model.cpp: read_from_step not found")
         return
-    idx = text.rstrip().rfind("#endif")
-    if idx < 0:
-        _failures.append("Format/STEP.hpp: closing #endif not found")
+    # The function ends at the first closing brace at column 0 after 'start'.
+    end = text.find("\n}\n", start)
+    if end < 0:
+        _failures.append("Model.cpp: read_from_step end not found")
         return
-    text = text[:idx] + marker + "\n" + text[idx:]
+    end += len("\n}\n")
+    stub = (
+        "// READ_FROM_STEP_REMOVED_FOR_WASM\n"
+        "// The OCCT-backed STEP importer is not compiled for WebAssembly.\n"
+        "// Callers in the GUI never reach this on the web build.\n"
+        "Model Model::read_from_step(const std::string &, LoadStrategy,\n"
+        "                           ImportStepProgressFn, StepIsUtf8Fn,\n"
+        "                           std::function<int(Slic3r::Step &, double &, double &, bool &)>,\n"
+        "                           double, double, bool,\n"
+        "                           std::function<void(const std::vector<std::string> &)>)\n"
+        "{\n"
+        "    throw std::runtime_error(\"STEP import is unavailable in the WebAssembly build\");\n"
+        "}\n"
+    )
+    text = text[:start] + stub + text[end:]
     if DRY_RUN:
-        _log("  WOULD CLOSE Format/STEP.hpp  [OCCT guard]")
+        _log("  WOULD STRIP Model.cpp  [read_from_step body]")
         return
     path.write_text(text, encoding="utf-8")
-    _log("  CLOSED Format/STEP.hpp  [OCCT guard]")
-
-
-# 8c. Model.hpp -- STEP types used outside the guarded header.
-#
-#     Guarding Format/STEP.hpp alone is not enough: Model.hpp uses four STEP
-#     types in its own declarations, so hiding the header just moves the error:
-#
-#       Model.hpp:1714:17: error: use of undeclared identifier 'StepImportTreeNode'
-#       Model.hpp:1815:33: error: unknown type name 'ImportStepProgressFn'
-#       Model.hpp:1816:33: error: unknown type name 'StepIsUtf8Fn'
-#       Model.hpp:1817:59: error: no member named 'Step' in namespace 'Slic3r'
-#
-#     Provide minimal stand-ins under WASM so the declarations stay well-formed.
-#     Nothing reaches them: STEP import is a GUI-only path and the headless
-#     engine never calls load_step/export_step.
-def patch_model_step_types() -> None:
-    patch("src/libslic3r/Model.hpp", [(
-        '#include "Format/STEP.hpp"',
-        '''// OCCT-based STEP import is not part of the WASM build, so Format/STEP.hpp
-// compiles to nothing there. Model.hpp still declares members of those types,
-// so give the names a minimal definition instead of hiding the includes.
-#if defined(SLIC3R_WASM_NO_OCCT)
-namespace Slic3r {
-class Step;
-struct StepImportTreeNode {
-    std::wstring name;
-    std::wstring uuid;
-    std::wstring type;
-    std::vector<StepImportTreeNode> children;
-};
-using StepIsUtf8Fn       = std::function<bool(std::string const &)>;
-using ImportStepProgressFn = std::function<void(int)>;
-} // namespace Slic3r
-#else
-#include "Format/STEP.hpp"
-#endif''',
-        "Model.hpp STEP type stand-ins",
-    )])
+    _log("  STRIPPED Model.cpp  [read_from_step body]")
 
 
 def patch_bridge() -> None:
@@ -442,10 +403,8 @@ def main() -> int:
         ("[5] Arachne/WallToolPaths.hpp", patch_arachne),
         ("[6] CGAL option block guard", patch_cgal_options),
         ("[7] ClipperZUtils include fix", patch_clipperz_includes),
-        ("[8] STEP.hpp OCCT guard", patch_step_header),
-        ("[8b] STEP.hpp OCCT guard close", patch_step_close),
-        ("[8c] Model.hpp STEP type stand-ins", patch_model_step_types),
-        ("[9] bridge injection", patch_bridge),
+        ("[9] strip the OCCT STEP importer", patch_strip_step),
+        ("[10] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
