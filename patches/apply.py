@@ -841,6 +841,27 @@ def patch_link_lines() -> None:
     )])
 
 
+# 16. Guard the Freetype/fontconfig link block.
+#
+#     Under WASM the block still runs (NOT WIN32 is true) and links two
+#     desktop-only text libraries:
+#       find_package(Freetype REQUIRED)
+#       target_link_libraries(libslic3r fontconfig)
+#     wasm-ld then fails on -lfontconfig. Text rendering is a GUI concern and the
+#     headless kernel never reaches it, so the whole block is skipped.
+def patch_freetype_guard() -> None:
+    patch('src/libslic3r/CMakeLists.txt', [(
+        '    find_package(Freetype REQUIRED)',
+        '    if(NOT SLIC3R_WASM)\n    find_package(Freetype REQUIRED)',
+        'Freetype block guarded (open)',
+    )])
+    patch('src/libslic3r/CMakeLists.txt', [(
+        '        target_link_libraries(libslic3r fontconfig)\n    endif()',
+        '        target_link_libraries(libslic3r fontconfig)\n    endif()\n    endif()',
+        'Freetype block guarded (close)',
+    )])
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -875,7 +896,8 @@ def main() -> int:
         ("[13] utils.cpp internal-testing literal", patch_utils_internal_testing),
         ("[14] strip SLA and OpenVDB", patch_strip_sla),
         ("[15] guard OCCT_LIBS, drop cereal", patch_link_lines),
-        ("[16] bridge injection", patch_bridge),
+        ("[16] guard freetype/fontconfig", patch_freetype_guard),
+        ("[17] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
