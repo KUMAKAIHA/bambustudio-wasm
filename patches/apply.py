@@ -288,6 +288,31 @@ def patch_cgal_options() -> None:
     )])
 
 
+# 8. ClipperZUtils.hpp -- missing include for a type it uses in its API.
+#
+#    The header dereferences ExPolygon (num_contours, contour, holes) but only
+#    includes Point.hpp. On desktop this compiles because some earlier include in
+#    the translation unit happens to pull in Polygon.hpp first. Under WASM the
+#    include order differs and clang reports the cascade:
+#
+#      error: member access into incomplete type 'const ExPolygon'
+#      error: arithmetic on a pointer to an incomplete type
+#
+#    Including Polygon.hpp directly is the correct fix either way: relying on
+#    transitive includes is what makes this order-dependent.
+def patch_clipperz_includes() -> None:
+    patch("src/libslic3r/ClipperZUtils.hpp", [(
+        '''#include <clipper/clipper_z.hpp>
+#include <libslic3r/Point.hpp>''',
+        '''#include <clipper/clipper_z.hpp>
+#include <libslic3r/Point.hpp>
+// Uses ExPolygon's members in its inline API below; the definition has to be
+// visible rather than arriving via whatever the caller included first.
+#include <libslic3r/Polygon.hpp>''',
+        "ClipperZUtils ExPolygon include",
+    )])
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -314,7 +339,8 @@ def main() -> int:
         ("[4] Thread.cpp", patch_thread),
         ("[5] Arachne/WallToolPaths.hpp", patch_arachne),
         ("[6] CGAL option block guard", patch_cgal_options),
-        ("[7] bridge injection", patch_bridge),
+        ("[7] ClipperZUtils include fix", patch_clipperz_includes),
+        ("[8] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
