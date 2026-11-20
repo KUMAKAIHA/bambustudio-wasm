@@ -31,6 +31,7 @@ NPROC=$(nproc)
 # plain host cmake, and a leaked -s flag makes their compiler-ABI probe fail
 # with "cc: error: unrecognized command-line option".
 EM_CFLAGS="-sSUPPORT_LONGJMP=wasm -pthread -O2"
+EM_CXX_FLAGS="-fwasm-exceptions -pthread -O2"
 EM_CXXFLAGS="-fwasm-exceptions -pthread -O2"
 
 # GitHub's ubuntu-latest ships CMake 4.x, which hard-errors on projects that
