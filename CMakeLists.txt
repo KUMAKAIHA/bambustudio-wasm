@@ -122,9 +122,17 @@ foreach(_comp IN LISTS _boost_components)
   endif()
 endforeach()
 
-# BambuStudio's own module handles the WASM layout; the system TBB is never
-# consulted because TBB_WASM_ROOT points at the cross-compiled install.
-find_package(TBB REQUIRED)
+# oneTBB ships its own TBBConfig.cmake, so ask for CONFIG mode explicitly.
+#
+# BambuStudio's cmake/modules/FindTBB.cmake.in is written against the pre-2021
+# TBB layout: it probes tbb/tbb.h for version macros in tbb/tbb_stddef.h. oneTBB
+# deleted tbb_stddef.h, so that file(READ ...) works on a missing path, the
+# version stays empty, and the component search then looks for tbb_preview --
+# failing with the misleading "TBB library cannot be found".
+#
+# CONFIG mode uses the config file oneTBB actually installs, which is both
+# correct and the supported path for modern TBB.
+find_package(TBB REQUIRED CONFIG)
 
 # BambuStudio's FindTBB module only fills TBB_INCLUDE_DIRS / TBB_LIBRARIES; it
 # never creates the imported target that libnest2d and libslic3r link against.
