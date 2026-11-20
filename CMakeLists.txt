@@ -15,6 +15,16 @@ set(CMAKE_C_STANDARD 11)
 # locations win over whatever happens to be installed on the build machine.
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# Dependency prefix, set once and used everywhere below.
+#
+# This has to be defined near the top: the expat block further down reads it,
+# and a forward reference silently evaluates to empty -- which then skips the
+# block entirely and lets find_package run its own (failing) probes.
+set(DEPS_INSTALL "$ENV{DEPS_INSTALL}" CACHE PATH "WASM dependency prefix")
+if(DEPS_INSTALL)
+  list(APPEND CMAKE_PREFIX_PATH "${DEPS_INSTALL}")
+endif()
+
 # libslic3r's CMakeLists does include(PrecompiledHeader), and that module lives
 # in BambuStudio's own cmake/modules. That path is never on CMAKE_MODULE_PATH
 # when libslic3r is added directly as a subdirectory instead of going through
@@ -128,15 +138,18 @@ endif()
 # is absent, but BambuStudio v02.09.01.70 no longer vendors them -- that fallback
 # points at a directory that does not exist. Point FindEXPAT at the dependency
 # prefix instead; scripts/build-deps.sh already built and installed it there.
-if(DEPS_INSTALL)
-  set(EXPAT_INCLUDE_DIR  "${DEPS_INSTALL}/include" CACHE PATH "" FORCE)
-  set(EXPAT_INCLUDE_DIRS "${DEPS_INSTALL}/include")
-  set(EXPAT_LIBRARY      "${DEPS_INSTALL}/lib/libexpat.a" CACHE FILEPATH "" FORCE)
-  set(EXPAT_LIBRARIES    "${DEPS_INSTALL}/lib/libexpat.a")
-  set(EXPAT_FOUND TRUE)
-else()
-  find_package(EXPAT REQUIRED)
+# Set the variables FindEXPAT would produce, directly. No find_package call at
+# all: anything that runs the module overwrites these with its own probes, and
+# those probes cannot see a cross-compiled archive that carries no desktop
+# sysroot metadata.
+if(NOT DEPS_INSTALL)
+  message(FATAL_ERROR "DEPS_INSTALL is not set; the dependency prefix is required")
 endif()
+set(EXPAT_INCLUDE_DIR  "${DEPS_INSTALL}/include")
+set(EXPAT_INCLUDE_DIRS "${DEPS_INSTALL}/include")
+set(EXPAT_LIBRARY      "${DEPS_INSTALL}/lib/libexpat.a")
+set(EXPAT_LIBRARIES    "${DEPS_INSTALL}/lib/libexpat.a")
+set(EXPAT_FOUND TRUE)
 if(NOT TARGET expat)
   add_library(expat INTERFACE IMPORTED GLOBAL)
   set_target_properties(expat PROPERTIES
@@ -197,10 +210,8 @@ endforeach()
 # it wants either <prefix>/lib/cmake/<name> discoverable or TBB_DIR pointed at
 # the config file directly. Point at it explicitly rather than relying on where
 # oneTBB happened to install.
-set(DEPS_INSTALL "$ENV{DEPS_INSTALL}" CACHE PATH "WASM dependency prefix")
 if(DEPS_INSTALL)
-  list(APPEND CMAKE_PREFIX_PATH "${DEPS_INSTALL}")
-  set(TBB_DIR "${DEPS_INSTALL}/lib/cmake/TBB" CACHE PATH "" FORCE)
+  set(TBB_DIR "${DEPS_INSTALL}/lib/cmake/TBB")
 endif()
 find_package(TBB REQUIRED CONFIG)
 
