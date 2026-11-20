@@ -336,6 +336,28 @@ def patch_strip_step() -> None:
         "drop STEP sources from the build",
     )])
 
+    # Model.hpp: drop the include. Removing the sources from CMake is not
+    # enough -- Model.hpp still #includes the header directly, so every
+    # translation unit that pulls in Model.hpp ends up compiling it:
+    #
+    #   Model.hpp:25 -> Format/STEP.hpp:3: fatal error: XCAFDoc_DocumentTool.hxx
+    #
+    # This is the piece the earlier guard attempts were working around, and the
+    # piece I dropped when replacing those attempts with a module removal.
+    patch("src/libslic3r/Model.hpp", [(
+        '#include "Format/STEP.hpp"',
+        """// Format/STEP.hpp is not part of the WASM build (it is the only header that
+// includes OpenCASCADE). The STEP entry points below are stubbed out in
+// Model.cpp; keep the type names declared so the class layout is unchanged.
+namespace Slic3r {
+class Step;
+struct StepImportTreeNode;
+using StepIsUtf8Fn = std::function<bool(std::string const &)>;
+using ImportStepProgressFn = std::function<void(int)>;
+} // namespace Slic3r""",
+        "Model.hpp: drop STEP include",
+    )])
+
     # Model.cpp: remove Model::read_from_step in full.
     path = SRC / "src/libslic3r/Model.cpp"
     if not path.exists():
