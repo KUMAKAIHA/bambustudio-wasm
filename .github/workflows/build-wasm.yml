@@ -207,21 +207,31 @@ jobs:
       # broken product" failure. Assert the ABI surface explicitly.
       - name: Verify exported ABI
         run: |
+          # Emscripten prefixes every C export with an underscore in the wasm
+          # module's export table (the JS glue strips it at the call site), so
+          # the names to look for here are _bsw_*, not bsw_*. Checking the
+          # unprefixed names reported every symbol as missing on a module that
+          # had them all.
           node -e '
             const fs = require("fs");
             const buf = fs.readFileSync("artifacts/${{ env.OUTPUT_NAME }}.wasm");
             const mod = new WebAssembly.Module(buf);
-            const ex = WebAssembly.Module.exports(mod).map(e => e.name);
+            const ex = new Set(WebAssembly.Module.exports(mod).map(e => e.name));
             const required = [
               "bsw_session_create","bsw_init","bsw_model_load",
               "bsw_slice","bsw_cancel","bsw_asset_read","bsw_last_error"
             ];
-            const missing = required.filter(n => !ex.includes(n));
+            // Accept either spelling: the C symbol may appear as bsw_x or _bsw_x
+            // depending on how Emscripten emits the export table.
+            const missing = required.filter(n => !ex.has(n) && !ex.has("_" + n));
             if (missing.length) {
+              const sample = [...ex].filter(n => n.includes("bsw"));
               console.error("missing exports:", missing.join(", "));
+              console.error("all bsw-ish exports:", sample.join(", ") || "(none)");
+              console.error("total exports:", ex.size);
               process.exit(1);
             }
-            console.log("exports OK:", ex.length, "symbols");
+            console.log("exports OK:", ex.size, "symbols");
             console.log("size:", (buf.length/1048576).toFixed(1), "MiB");
           '
 
