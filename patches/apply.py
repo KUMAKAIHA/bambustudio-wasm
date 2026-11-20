@@ -306,9 +306,10 @@ def patch_clipperz_includes() -> None:
 #include <libslic3r/Point.hpp>''',
         '''#include <clipper/clipper_z.hpp>
 #include <libslic3r/Point.hpp>
-// Uses ExPolygon's members in its inline API below; the definition has to be
-// visible rather than arriving via whatever the caller included first.
-#include <libslic3r/Polygon.hpp>''',
+// The inline API below calls ExPolygon::num_contours and reads contour/holes, so
+// the definition must be visible. It lives in ExPolygon.hpp -- Polygon.hpp does
+// NOT define ExPolygon, which is what made the first attempt at this fix a no-op.
+#include <libslic3r/ExPolygon.hpp>''',
         "ClipperZUtils ExPolygon include",
     )])
 
