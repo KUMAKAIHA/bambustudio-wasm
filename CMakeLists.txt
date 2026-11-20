@@ -142,6 +142,31 @@ if(NOT TARGET libcurl)
   add_library(libcurl INTERFACE IMPORTED GLOBAL)
 endif()
 
+# OpenSSL: MD5, AES-256-CBC and a little EVP are used by Utils.hpp and friends.
+# Emscripten has no OpenSSL port, so scripts/build-deps.sh cross-compiles it and
+# the headers have to go on the include path here.
+if(DEPS_INSTALL)
+  set(OPENSSL_INCLUDE_DIR  "${DEPS_INSTALL}/include")
+  set(OPENSSL_INCLUDE_DIRS "${DEPS_INSTALL}/include")
+  set(OPENSSL_SSL_LIBRARY     "${DEPS_INSTALL}/lib/libssl.a")
+  set(OPENSSL_CRYPTO_LIBRARY  "${DEPS_INSTALL}/lib/libcrypto.a")
+  set(OPENSSL_LIBRARIES       "${DEPS_INSTALL}/lib/libssl.a;${DEPS_INSTALL}/lib/libcrypto.a")
+  set(OPENSSL_FOUND TRUE)
+  include_directories(SYSTEM "${DEPS_INSTALL}/include")
+  if(NOT TARGET OpenSSL::SSL)
+    add_library(OpenSSL::SSL STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::SSL PROPERTIES
+      IMPORTED_LOCATION "${OPENSSL_SSL_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}")
+  endif()
+  if(NOT TARGET OpenSSL::Crypto)
+    add_library(OpenSSL::Crypto STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::Crypto PROPERTIES
+      IMPORTED_LOCATION "${OPENSSL_CRYPTO_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}")
+  endif()
+endif()
+
 # expat: take the cross-compiled package from deps-install.
 #
 # Upstream falls back to bundled sources under src/expat when the system library

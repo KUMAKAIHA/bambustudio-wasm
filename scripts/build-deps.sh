@@ -17,6 +17,7 @@ set -euo pipefail
 : "${EXPAT_VERSION:=2.5.0}"
 : "${NLOPT_VERSION:=2.7.1}"
 : "${CEREAL_VERSION:=1.3.2}"
+: "${OPENSSL_VERSION:=3.3.2}"
 
 ROOT="$(pwd)"
 INSTALL="$ROOT/deps-install"
@@ -196,6 +197,29 @@ else
   echo "[tbb] cached"
 fi
 
+
+# ── OpenSSL ─────────────────────────────────────────────────────────────────
+# libslic3r uses MD5, AES-256-CBC and a little EVP. Emscripten ships no OpenSSL
+# port, so it has to be cross-compiled. The no-asm/no-asm builds are required:
+# openssl's assembly is x86 and does not exist for wasm32.
+if [ ! -f "$INSTALL/lib/libcrypto.a" ]; then
+  echo "[openssl] building $OPENSSL_VERSION"
+  DL=/tmp/deps-dl; mkdir -p "$DL"
+  curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz" | tar xz -C "$DL"
+  cd "$DL/openssl-$OPENSSL_VERSION"
+  emconfigure ./Configure \
+    linux-x32 \
+    no-asm no-shared no-async no-tests no-engine \
+    no-dso no-ssl3 no-comp no-hw no-threads \
+    --prefix="$INSTALL" \
+    --openssldir="$INSTALL/ssl" \
+    CFLAGS="$EM_CFLAGS"
+  emmake make -j"$NPROC" build_libs
+  emmake make install_sw
+  echo "[openssl] done"
+else
+  echo "[openssl] cached"
+fi
 # ── CGAL config ──────────────────────────────────────────────────────────────
 # Header-only. Plain cmake (not emcmake): this only installs headers and the
 # CMake config, no cross-compiled objects are produced.

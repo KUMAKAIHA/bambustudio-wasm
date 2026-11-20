@@ -40,6 +40,7 @@ env:
   BOOST_VERSION: '1.83.0'
   GMP_VERSION: '6.3.0'
   MPFR_VERSION: '4.2.1'
+  OPENSSL_VERSION: '3.3.2'
   OUTPUT_NAME: bambu-slicer
   BSW_SRC: ${{ github.workspace }}/BambuStudio
   # GitHub's runners ship CMake 4.x, which hard-errors on any project still
@@ -118,7 +119,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: deps-install
-          key: wasm-deps-${{ runner.os }}-b${{ env.BOOST_VERSION }}-g${{ env.GMP_VERSION }}-t${{ env.ONETBB_VERSION }}-v1
+          key: wasm-deps-${{ runner.os }}-b${{ env.BOOST_VERSION }}-g${{ env.GMP_VERSION }}-t${{ env.ONETBB_VERSION }}-o${{ env.OPENSSL_VERSION }}-v1
 
       - name: Build WASM dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
