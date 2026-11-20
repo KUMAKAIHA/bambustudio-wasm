@@ -672,6 +672,26 @@ def patch_strip_cv_assimp() -> None:
         _log("  WROTE TexturePainting_wasm_stub.cpp")
 
 
+# 12. LocalesUtils.cpp -- <sstream> is only reachable on the Windows branch.
+#
+#     The file includes <charconv> under _WIN32 and uses std::stringstream in the
+#     #else arm, without ever including <sstream>. Desktop builds get away with it
+#     because some other header pulls sstream in; clang here reports:
+#
+#       LocalesUtils.cpp:81:23: error: implicit instantiation of undefined
+#           template 'std::basic_stringstream<char>'
+#
+#     Include it unconditionally: both branches then have what they need and the
+#     dependency is explicit.
+def patch_locales_sstream() -> None:
+    patch("src/libslic3r/LocalesUtils.cpp", [(
+        """#include <stdexcept>""",
+        """#include <sstream>
+#include <stdexcept>""",
+        "LocalesUtils: include <sstream>",
+    )])
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -702,7 +722,8 @@ def main() -> int:
         ("[9] strip the OCCT STEP importer", patch_strip_step),
         ("[10] strip svg and TextShape", patch_strip_occt_modules),
         ("[11] strip OpenCV and assimp modules", patch_strip_cv_assimp),
-        ("[12] bridge injection", patch_bridge),
+        ("[12] LocalesUtils <sstream>", patch_locales_sstream),
+        ("[13] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
