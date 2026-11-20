@@ -444,6 +444,22 @@ def patch_strip_occt_modules() -> None:
         "drop TextShape.cpp, register its stub",
     )])
 
+    # svg.hpp declares load_svg with a std::string& parameter but never includes
+    # <string>. Desktop builds reach it through whatever the including file
+    # pulled in first; the stub translation unit includes it standalone and
+    # surfaces the omission:
+    #   Format/svg.hpp:5:54: error: use of undeclared identifier 'std'
+    patch("src/libslic3r/Format/svg.hpp", [(
+        """#pragma once
+namespace Slic3r {""",
+        """#pragma once
+
+#include <string>
+
+namespace Slic3r {""",
+        "svg.hpp: include <string>",
+    )])
+
     # TextShape provides text_to_mesh; give it a throw-only replacement.
     stub = (
         "// Provided by patches/apply.py: Shape/TextShape.cpp is not built for WASM.\n"
