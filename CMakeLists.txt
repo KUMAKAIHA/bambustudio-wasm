@@ -200,11 +200,24 @@ add_library(boost_headeronly INTERFACE)
 if(TARGET Boost::boost)
   target_link_libraries(boost_headeronly INTERFACE Boost::boost)
 endif()
+# Upstream also does this at BambuStudio/CMakeLists.txt:483, in the branch taken
+# when Boost::system exists. Without it, targets that link boost_headeronly but
+# not boost_libs -- libslic3r_cgal via libigl, for one -- get no Boost include
+# path at all and fail on <boost/optional.hpp>.
+if(Boost_INCLUDE_DIRS)
+  target_include_directories(boost_headeronly INTERFACE ${Boost_INCLUDE_DIRS})
+endif()
 foreach(_comp IN LISTS _boost_components)
   if(TARGET Boost::${_comp})
     target_link_libraries(boost_libs INTERFACE Boost::${_comp})
   endif()
 endforeach()
+
+# Belt and braces: put the Boost headers on the global include path too.
+# Several subdirectory targets (libigl, mcut, libslic3r_cgal) reference Boost
+# headers without linking any Boost target at all, so target-level propagation
+# cannot reach them.
+include_directories(SYSTEM "${BOOST_WASM_ROOT}/include")
 
 # oneTBB ships its own TBBConfig.cmake, so ask for CONFIG mode explicitly.
 #
