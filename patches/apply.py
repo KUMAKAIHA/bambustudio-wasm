@@ -427,15 +427,21 @@ def patch_strip_occt_modules() -> None:
         "drop svg.cpp from the build",
     )])
 
+    # One patch, not two. Splitting "drop the source" and "register the stub"
+    # into separate patch() calls makes them fight: the register step rewrites
+    # the comment the drop step inserted, so on a second run the drop step can
+    # no longer find its own replacement text and reports a missing anchor.
+    # Emit the final shape in a single replacement.
     patch("src/libslic3r/CMakeLists.txt", [(
         """    Shape/TextShape.hpp
     Shape/TextShape.cpp
 """,
         """    Shape/TextShape.hpp
 # Shape/TextShape.cpp is OMITTED for WASM: it builds text solids with
-# OpenCASCADE. text_to_mesh is stubbed here.
+# OpenCASCADE. This stub keeps text_to_mesh linkable.
+    Shape/TextShape_wasm_stub.cpp
 """,
-        "drop TextShape.cpp from the build",
+        "drop TextShape.cpp, register its stub",
     )])
 
     # TextShape provides text_to_mesh; give it a throw-only replacement.
@@ -497,16 +503,6 @@ def patch_strip_occt_modules() -> None:
     Format/svg_wasm_stub.cpp
 """,
         "register svg stub",
-    )])
-    patch("src/libslic3r/CMakeLists.txt", [(
-        """# Shape/TextShape.cpp is OMITTED for WASM: it builds text solids with
-# OpenCASCADE. text_to_mesh is stubbed here.
-""",
-        """# Shape/TextShape.cpp is OMITTED for WASM: it builds text solids with
-# OpenCASCADE. This stub keeps text_to_mesh linkable.
-    Shape/TextShape_wasm_stub.cpp
-""",
-        "register TextShape stub",
     )])
 
 
