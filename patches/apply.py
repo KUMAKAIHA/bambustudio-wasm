@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+D = chr(36)  # dollar sign kept out of source literals
 SRC = Path(os.environ.get("BSW_SRC", ROOT / "BambuStudio"))
 
 _parser = argparse.ArgumentParser()
@@ -805,6 +806,41 @@ def patch_strip_sla() -> None:
     )])
 
 
+# 15. Guard OCCT_LIBS and drop the cereal library name.
+#
+#     Wrapping find_package(OpenCASCADE) stops the search but leaves two
+#     downstream references live:
+#       set(OCCT_LIBS TKXDESTEP TKSTEP ...)   -- link flag names
+#       OCCT_LIBS on the target_link_libraries line
+#     so wasm-ld reports "unable to find library -lTKXDESTEP" for each one.
+#
+#     cereal is header-only: its package exports an INTERFACE target and there is
+#     no libcereal.a, so the bare name on the link line is a linker error.
+def patch_link_lines() -> None:
+    patch('src/libslic3r/CMakeLists.txt', [(
+        'set(OCCT_LIBS\n    TKXDESTEP',
+        'if(NOT SLIC3R_WASM)\nset(OCCT_LIBS\n    TKXDESTEP',
+        'OCCT_LIBS guarded (open)',
+    )])
+
+    patch('src/libslic3r/CMakeLists.txt', [(
+        'target_link_libraries(libslic3r\n    noise::noise\n    libnest2d\n    admesh\n    cereal',
+        'endif()\n'
+        '\n'
+        'target_link_libraries(libslic3r\n    noise::noise\n    libnest2d\n    admesh\n'
+        '    # cereal is header-only (INTERFACE target); naming it bare asks the\n'
+        '    # linker for a libcereal.a that does not exist.\n'
+        '    # cereal',
+        'OCCT_LIBS guarded (close), cereal dropped',
+    )])
+
+    patch('src/libslic3r/CMakeLists.txt', [(
+        '    ' + D + '{OCCT_LIBS}\n',
+        '    # ' + D + '{OCCT_LIBS} -- OCCT is not in the WASM build\n',
+        'OCCT_LIBS dropped from link line',
+    )])
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -838,7 +874,8 @@ def main() -> int:
         ("[12] LocalesUtils <sstream>", patch_locales_sstream),
         ("[13] utils.cpp internal-testing literal", patch_utils_internal_testing),
         ("[14] strip SLA and OpenVDB", patch_strip_sla),
-        ("[15] bridge injection", patch_bridge),
+        ("[15] guard OCCT_LIBS, drop cereal", patch_link_lines),
+        ("[16] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
