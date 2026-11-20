@@ -738,6 +738,67 @@ def patch_utils_internal_testing() -> None:
     _log(f"  REWROTE utils.cpp  [internal-testing literal x{n}]")
 
 
+# 14. Strip the SLA (resin) subsystem and the last OpenVDB consumers.
+#
+#     OpenVDB has no WASM build and its dependency chain (Blosc, Imath, TBB
+#     integration) is not worth porting for what it enables. Its real consumers
+#     are all resin-printing features:
+#
+#       SLA/Hollowing.cpp        -- hollowing, SLA only
+#       CSGMesh/VoxelizeCSGMesh  -- header-only, referenced by nothing
+#       TreeSupport3D            -- its OpenVDB branch is disabled by
+#                                   TREE_SUPPORT_ORGANIC_NUDGE_NEW=1
+#
+#     SLA is the resin slicer: 35 files, ~5200 lines, reachable only from
+#     SLAPrintSteps/SLAPrint. FDM slicing never enters it. Model.hpp touches it
+#     only through a forward declaration and friend entries, which stay valid
+#     with the class never defined.
+#
+#     This is a real capability cut: resin hollowing and resin support
+#     generation are gone from this build. Phase one accepted that trade to get
+#     a working FDM engine.
+def patch_strip_sla() -> None:
+    cm = SRC / 'src/libslic3r/CMakeLists.txt'
+    text = cm.read_text(encoding='utf-8')
+    if 'SLA/ (resin) subsystem is OMITTED' in text:
+        _log('  OK   src/libslic3r/CMakeLists.txt  [SLA sources: already removed]')
+    else:
+        lines = text.splitlines(keepends=True)
+        kept, dropped = [], 0
+        for ln in lines:
+            st = ln.strip()
+            if st.startswith('SLA/') and not st.startswith('SLA/SupportTreeIGL'):
+                dropped += 1
+                continue
+            kept.append(ln)
+        header = (
+            '# The SLA/ (resin) subsystem is OMITTED for WASM. It is the resin slicer:\n'
+            '# unreachable from FDM slicing, and the last consumer of OpenVDB, which\n'
+            '# has no WebAssembly build. Resin hollowing and resin supports are\n'
+            '# therefore unavailable in this build.\n'
+        )
+        out, inserted = [], False
+        for ln in kept:
+            if not inserted and ln.strip().startswith('Arachne/BeadingStrategy'):
+                out.append(header)
+                inserted = True
+            out.append(ln)
+        if DRY_RUN:
+            _log(f'  WOULD REMOVE {dropped} SLA sources')
+        else:
+            cm.write_text(''.join(out), encoding='utf-8')
+            _log(f'  REMOVED {dropped} SLA sources')
+
+    # Keep the OpenVDBUtils translation unit out of the build regardless of the
+    # upstream guard, which keys off a target that will never exist here.
+    patch("src/libslic3r/CMakeLists.txt", [(
+        "    ${OpenVDBUtils_SOURCES}",
+        "    # OpenVDB has no WASM build; this stays empty.\n"
+        "    # ${OpenVDBUtils_SOURCES}",
+        "OpenVDBUtils excluded",
+    )])
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -770,7 +831,8 @@ def main() -> int:
         ("[11] strip OpenCV and assimp modules", patch_strip_cv_assimp),
         ("[12] LocalesUtils <sstream>", patch_locales_sstream),
         ("[13] utils.cpp internal-testing literal", patch_utils_internal_testing),
-        ("[14] bridge injection", patch_bridge),
+        ("[14] strip SLA and OpenVDB", patch_strip_sla),
+        ("[15] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
