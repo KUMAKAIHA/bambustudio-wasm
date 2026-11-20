@@ -706,6 +706,38 @@ def patch_locales_sstream() -> None:
     )])
 
 
+# 13. utils.cpp -- hard-wire the internal-testing switch.
+#
+#     The file uses `BBL_INTERNAL_TESTING == 1` in three ternaries. Defining the
+#     macro on the command line should be enough, and locally it is: em++ with
+#     -DBBL_INTERNAL_TESTING=0 expands the expression correctly and compiles.
+#     In CI the same compile still fails at the same column with
+#     "expected expression", which means the identifier is reaching the compiler
+#     unexpanded there -- three rounds have now gone into trying to influence
+#     that from CMake.
+#
+#     Stop depending on it. Replace the expression with a literal 0 in the
+#     source, so the parse no longer involves the macro at all. Behaviour is
+#     identical to BBL_INTERNAL_TESTING=0: the beta path is taken.
+def patch_utils_internal_testing() -> None:
+    with open(SRC / "src/libslic3r/utils.cpp", "rb") as fh:
+        raw = fh.read().decode("utf-8")
+    needle = "BBL_INTERNAL_TESTING == 1"
+    if "0 == 1" in raw and needle not in raw:
+        _log("  OK   utils.cpp  [internal-testing literal: already applied]")
+        return
+    n = raw.count(needle)
+    if n == 0:
+        _failures.append("utils.cpp: BBL_INTERNAL_TESTING expression not found")
+        return
+    raw = raw.replace(needle, "0 == 1")
+    if DRY_RUN:
+        _log(f"  WOULD REWRITE utils.cpp  [internal-testing literal x{n}]")
+        return
+    (SRC / "src/libslic3r/utils.cpp").write_text(raw, encoding="utf-8")
+    _log(f"  REWROTE utils.cpp  [internal-testing literal x{n}]")
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -737,7 +769,8 @@ def main() -> int:
         ("[10] strip svg and TextShape", patch_strip_occt_modules),
         ("[11] strip OpenCV and assimp modules", patch_strip_cv_assimp),
         ("[12] LocalesUtils <sstream>", patch_locales_sstream),
-        ("[13] bridge injection", patch_bridge),
+        ("[13] utils.cpp internal-testing literal", patch_utils_internal_testing),
+        ("[14] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
