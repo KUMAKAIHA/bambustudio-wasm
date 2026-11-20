@@ -228,6 +228,24 @@ if [ ! -f "$INSTALL/lib/libcrypto.a" ]; then
 else
   echo "[openssl] cached"
 fi
+
+# ── libnoise ────────────────────────────────────────────────────────────────
+# FuzzySkin.cpp uses noise::module for the fuzzy-skin surface perturbation.
+# SoftFever's packaging of libnoise is the one the slicer family builds against;
+# upstream libnoise has no CMake and ships a different header layout.
+if [ ! -f "$INSTALL/lib/liblibnoise_static.a" ]; then
+  echo "[libnoise] building"
+  curl -fsSL "https://github.com/SoftFever/Orca-deps-libnoise/archive/refs/tags/1.0.tar.gz" | tar xz -C /tmp
+  rm -rf /tmp/libnoise-src && mv /tmp/Orca-deps-libnoise-1.0 /tmp/libnoise-src
+  emcmake cmake -S /tmp/libnoise-src -B /tmp/libnoise-build -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="$INSTALL" \
+    -DCMAKE_BUILD_TYPE=Release \
+    "-DCMAKE_CXX_FLAGS=$EM_CXX_FLAGS"
+  emmake cmake --build /tmp/libnoise-build --target install -j"$NPROC"
+  echo "[libnoise] done"
+else
+  echo "[libnoise] cached"
+fi
 # ── CGAL config ──────────────────────────────────────────────────────────────
 # Header-only. Plain cmake (not emcmake): this only installs headers and the
 # CMake config, no cross-compiled objects are produced.

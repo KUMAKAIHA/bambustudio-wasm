@@ -342,8 +342,19 @@ find_package(PNG REQUIRED)
 if(NOT TARGET NLopt::nlopt)
   add_library(NLopt::nlopt INTERFACE IMPORTED GLOBAL)
 endif()
+# libnoise is a real WASM dependency here, not a stub: FuzzySkin.cpp uses
+# noise::module for fuzzy-skin perturbation and that is on the slicing path.
 if(NOT TARGET noise::noise)
-  add_library(noise::noise INTERFACE IMPORTED GLOBAL)
+  if(DEPS_INSTALL AND EXISTS "${DEPS_INSTALL}/lib/liblibnoise_static.a")
+    add_library(noise::noise STATIC IMPORTED GLOBAL)
+    set_target_properties(noise::noise PROPERTIES
+      IMPORTED_LOCATION "${DEPS_INSTALL}/lib/liblibnoise_static.a"
+      INTERFACE_INCLUDE_DIRECTORIES "${DEPS_INSTALL}/include")
+  else()
+    message(FATAL_ERROR
+      "libnoise not built. It is required by libslic3r/FuzzySkin.cpp; "
+      "scripts/build-deps.sh produces it at \${DEPS_INSTALL}/lib/liblibnoise_static.a")
+  endif()
 endif()
 
 # Every GUI-only dependency that the patches stop find_package-ing is still
