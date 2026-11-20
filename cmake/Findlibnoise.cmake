@@ -16,7 +16,9 @@ if(NOT TARGET noise::noise)
     add_library(noise::noise STATIC IMPORTED GLOBAL)
     set_target_properties(noise::noise PROPERTIES
       IMPORTED_LOCATION "${_libnoise_root}/lib/liblibnoise_static.a"
-      INTERFACE_INCLUDE_DIRECTORIES "${_libnoise_root}/include")
+      # FuzzySkin.cpp includes "noise.h" directly, and the package puts its
+      # headers under include/libnoise/, so both roots are on the search path.
+      INTERFACE_INCLUDE_DIRECTORIES "${_libnoise_root}/include;${_libnoise_root}/include/libnoise")
   else()
     add_library(noise::noise INTERFACE IMPORTED GLOBAL)
   endif()

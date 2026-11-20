@@ -349,7 +349,10 @@ if(NOT TARGET noise::noise)
     add_library(noise::noise STATIC IMPORTED GLOBAL)
     set_target_properties(noise::noise PROPERTIES
       IMPORTED_LOCATION "${DEPS_INSTALL}/lib/liblibnoise_static.a"
-      INTERFACE_INCLUDE_DIRECTORIES "${DEPS_INSTALL}/include")
+      # Two include roots are needed: FuzzySkin.cpp does #include "noise.h",
+      # not #include <libnoise/noise.h>, and the package installs its headers
+      # one level down under include/libnoise/.
+      INTERFACE_INCLUDE_DIRECTORIES "${DEPS_INSTALL}/include;${DEPS_INSTALL}/include/libnoise")
   else()
     message(FATAL_ERROR
       "libnoise not built. It is required by libslic3r/FuzzySkin.cpp; "
