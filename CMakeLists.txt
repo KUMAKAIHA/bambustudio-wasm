@@ -81,6 +81,59 @@ endif()
 # Deliberately omitted versus the desktop build:
 #   libnoise  -- only reached through the GUI's fuzzy-skin preview
 #   imgui / imguizmo / hidapi -- GUI only, gated behind SLIC3R_GUI upstream
+# ── Dependency discovery the top-level project normally does ─────────────────
+#
+# We add BambuStudio's subdirectories directly instead of including its
+# top-level CMakeLists (which would drag in wxWidgets, GTK, OpenGL and the GUI).
+# The cost of that shortcut is that the following discovery steps, normally at
+# BambuStudio/CMakeLists.txt:440 / :534, never run -- yet every subdirectory
+# below links their imported targets. Run them here, in the same order.
+set(MINIMUM_BOOST_VERSION "1.83.0")
+set(_boost_components "system;filesystem;thread;log;locale;regex;chrono;atomic;date_time;iostreams")
+find_package(Boost ${MINIMUM_BOOST_VERSION} REQUIRED COMPONENTS ${_boost_components})
+
+# These two INTERFACE targets are declared at BambuStudio/CMakeLists.txt:442 and
+# linked from admesh, nowide, hints and libslic3r. Reproduce them here, wired to
+# the imported targets find_package just created.
+add_library(boost_libs INTERFACE)
+add_library(boost_headeronly INTERFACE)
+if(TARGET Boost::boost)
+  target_link_libraries(boost_headeronly INTERFACE Boost::boost)
+endif()
+foreach(_comp IN LISTS _boost_components)
+  if(TARGET Boost::${_comp})
+    target_link_libraries(boost_libs INTERFACE Boost::${_comp})
+  endif()
+endforeach()
+
+# BambuStudio's own module handles the WASM layout; the system TBB is never
+# consulted because TBB_WASM_ROOT points at the cross-compiled install.
+find_package(TBB REQUIRED)
+
+# BambuStudio's FindTBB module only fills TBB_INCLUDE_DIRS / TBB_LIBRARIES; it
+# never creates the imported target that libnest2d and libslic3r link against.
+# Build them from whatever the module found.
+if(NOT TARGET TBB::tbb)
+  add_library(TBB::tbb INTERFACE IMPORTED GLOBAL)
+  if(TBB_INCLUDE_DIRS)
+    set_target_properties(TBB::tbb PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${TBB_INCLUDE_DIRS}")
+  endif()
+  if(TBB_LIBRARIES)
+    set_target_properties(TBB::tbb PROPERTIES
+      INTERFACE_LINK_LIBRARIES "${TBB_LIBRARIES}")
+  endif()
+endif()
+if(NOT TARGET TBB::tbbmalloc)
+  # tbbmalloc has no separate WASM build; aliasing it to tbb keeps
+  # libslic3r's link line resolvable.
+  add_library(TBB::tbbmalloc ALIAS TBB::tbb)
+endif()
+
+# ZLIB and libpng are reached through libslic3r's PNG reader.
+find_package(ZLIB REQUIRED)
+find_package(PNG REQUIRED)
+
 # ── Targets libslic3r's siblings link without ever find_package-ing ──────────
 #
 # libnest2d does target_link_libraries(... NLopt::nlopt ...) but nothing in the
