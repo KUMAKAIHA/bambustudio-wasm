@@ -40,6 +40,15 @@ set(BBL_RELEASE_TO_PUBLIC 0 CACHE STRING "BambuStudio public-release build flag"
 
 # OCCT is not in the WASM build; STEP.hpp guards its OpenCASCADE includes on this.
 add_compile_definitions(SLIC3R_WASM_NO_OCCT)
+
+# BBL_INTERNAL_TESTING gates internal/beta profile paths. The project never
+# defines it -- desktop builds pass it in from the release script. Left
+# undefined, code like
+#     const size_t n = BBL_INTERNAL_TESTING == 1 ? ... : ...;
+# expands to "== 1 ? ..." and fails to parse:
+#   utils.cpp:964:56: error: expected expression
+# Define it to 0 so those ternaries take the public/beta branch.
+add_compile_definitions(BBL_INTERNAL_TESTING=0)
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} ${BSW_C_FLAGS}")
 
 # Inject our Find modules before any system ones, so the WASM dependency
