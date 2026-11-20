@@ -557,6 +557,23 @@ def patch_strip_cv_assimp() -> None:
         "drop TexturePainting.cpp, register stub",
     )])
 
+    # TextureToColor is the implementation behind TexturePainting and is reached
+    # only from it. With TexturePainting gone, nothing else references
+    # tex2color:: -- verified by grepping the whole tree -- so the directory goes
+    # too rather than being stubbed piecemeal.
+    patch("src/libslic3r/CMakeLists.txt", [(
+        """    TextureToColor/TextureToColor.hpp
+    TextureToColor/TextureToColor.cpp
+    TextureToColor/ColorUtils.hpp
+    TextureToColor/ColorUtils.cpp
+""",
+        """# The TextureToColor/ sources are OMITTED for WASM: they back TexturePainting,
+# which needs OpenCV and is itself stripped below. Nothing else in the tree
+# references tex2color::.
+""",
+        "drop TextureToColor sources",
+    )])
+
     assimp_stub = (
         "// Provided by patches/apply.py: Format/AssimpImport.cpp is not built for\n"
         "// WASM. assimp is a desktop-only import library.\n"
@@ -591,6 +608,12 @@ def patch_strip_cv_assimp() -> None:
         "#include \"TexturePainting.hpp\"\n"
         "\n"
         "namespace Slic3r {\n"
+        "\n"
+        "// The deleter is declared in the header and normally defined in\n"
+        "// TextureToColor.cpp, which is not built here. It cannot delete: the\n"
+        "// pointee is only forward-declared in this configuration, and nothing\n"
+        "// ever allocates one, so the pointer is always null.\n"
+        "void MeshRepairCacheDeleter::operator()(tex2color::MeshRepairCache *) const {}\n"
         "\n"
         "MeshRepairCachePtr make_mesh_repair_cache() { return {}; }\n"
         "\n"
