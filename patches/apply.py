@@ -557,6 +557,20 @@ def patch_strip_cv_assimp() -> None:
         "drop TexturePainting.cpp, register stub",
     )])
 
+    # ObjColorUtils is the last OpenCV consumer in the tree. Its .hpp pulls in
+    # opencv2/opencv.hpp and exposes only its own namespace; nothing outside the
+    # file references it (verified by grepping the tree for its entry points), so
+    # it goes rather than being stubbed.
+    patch("src/libslic3r/CMakeLists.txt", [(
+        """    ObjColorUtils.cpp
+    ObjColorUtils.hpp
+""",
+        """# ObjColorUtils is OMITTED for WASM: it is the only remaining OpenCV consumer
+# and nothing outside the file calls into it.
+""",
+        "drop ObjColorUtils",
+    )])
+
     # TextureToColor is the implementation behind TexturePainting and is reached
     # only from it. With TexturePainting gone, nothing else references
     # tex2color:: -- verified by grepping the whole tree -- so the directory goes
