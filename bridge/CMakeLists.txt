@@ -1,7 +1,13 @@
 # C ABI bridge: the only code that touches libslic3r on behalf of the host.
-# Links against libslic3r only; GUI/wxWidgets/OpenGL are out of scope.
+#
+# OBJECT, not STATIC. A static archive only contributes the objects the linker
+# is forced to pull in, and nothing in this build references bsw_* by name --
+# they exist purely for the JS host. The archive was therefore dropped entirely
+# and the module shipped with zero bsw exports (34 exports total, all Emscripten
+# runtime symbols). An OBJECT library puts the objects on the link line
+# unconditionally.
 
-add_library(bsw_bridge STATIC
+add_library(bsw_bridge OBJECT
   slicer.cpp
 )
 

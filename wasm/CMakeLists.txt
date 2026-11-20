@@ -9,6 +9,26 @@ set(BSW_OUTPUT_NAME "bambu-slicer" CACHE STRING "Output artifact base name")
 target_link_options(bsw_engine PRIVATE
   -O3
   --profiling-funcs
+  # Belt and braces alongside the OBJECT-library change: -u marks these symbols
+  # as roots so the linker cannot discard them as unreferenced. Without this the
+  # module linked cleanly but exported none of the C ABI.
+  "-Wl,-u,bsw_session_create"
+  "-Wl,-u,bsw_session_destroy"
+  "-Wl,-u,bsw_init"
+  "-Wl,-u,bsw_model_load"
+  "-Wl,-u,bsw_model_export_stl"
+  "-Wl,-u,bsw_model_transform"
+  "-Wl,-u,bsw_model_orient"
+  "-Wl,-u,bsw_model_arrange"
+  "-Wl,-u,bsw_model_info"
+  "-Wl,-u,bsw_slice"
+  "-Wl,-u,bsw_cancel"
+  "-Wl,-u,bsw_set_progress_callback"
+  "-Wl,-u,bsw_asset_size"
+  "-Wl,-u,bsw_asset_read"
+  "-Wl,-u,bsw_last_error"
+  "-Wl,-u,bsw_capabilities"
+  "-Wl,-u,bsw_free"
   -sALLOW_MEMORY_GROWTH=1
   -sMALLOC=emmalloc
   -sSTACK_SIZE=16777216
