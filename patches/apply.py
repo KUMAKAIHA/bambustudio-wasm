@@ -351,7 +351,15 @@ def patch_strip_step() -> None:
 // Model.cpp; keep the type names declared so the class layout is unchanged.
 namespace Slic3r {
 class Step;
-struct StepImportTreeNode;
+// Must be a complete type, not a forward declaration: Model stores these in a
+// std::vector, and instantiating that requires sizeof(StepImportTreeNode).
+//   allocator.h:139: invalid application of sizeof to an incomplete type
+struct StepImportTreeNode {
+    std::wstring name;
+    std::wstring uuid;
+    std::wstring type;
+    std::vector<StepImportTreeNode> children;
+};
 using StepIsUtf8Fn = std::function<bool(std::string const &)>;
 using ImportStepProgressFn = std::function<void(int)>;
 } // namespace Slic3r""",
@@ -398,6 +406,110 @@ using ImportStepProgressFn = std::function<void(int)>;
     _log("  STRIPPED Model.cpp  [read_from_step body]")
 
 
+# 10. Strip the other two OCCT-dependent modules.
+#
+#     An audit finds exactly three consumers of OpenCASCADE:
+#       Format/STEP.cpp   (37 refs) -- removed above
+#       Format/svg.cpp    (37 refs) -- 3D extrusion of the imported outline
+#       Shape/TextShape.cpp (33 refs) -- turns text into a solid via OCCT
+#
+#     svg.cpp keeps nanosvg for parsing and only reaches OCCT to extrude the
+#     result into a mesh; TextShape.cpp exists solely to do that. Neither is
+#     reachable from the headless slicing path, so both are dropped and their
+#     entry points stubbed.
+def patch_strip_occt_modules() -> None:
+    patch("src/libslic3r/CMakeLists.txt", [(
+        """    Format/svg.cpp
+""",
+        """# Format/svg.cpp is OMITTED for WASM: it extrudes the imported outline through
+# OpenCASCADE. load_svg is stubbed below.
+""",
+        "drop svg.cpp from the build",
+    )])
+
+    patch("src/libslic3r/CMakeLists.txt", [(
+        """    Shape/TextShape.hpp
+    Shape/TextShape.cpp
+""",
+        """    Shape/TextShape.hpp
+# Shape/TextShape.cpp is OMITTED for WASM: it builds text solids with
+# OpenCASCADE. text_to_mesh is stubbed here.
+""",
+        "drop TextShape.cpp from the build",
+    )])
+
+    # TextShape provides text_to_mesh; give it a throw-only replacement.
+    stub = (
+        "// Provided by patches/apply.py: Shape/TextShape.cpp is not built for WASM.\n"
+        "#include \"TextShape.hpp\"\n"
+        "\n"
+        "#include <stdexcept>\n"
+        "\n"
+        "namespace Slic3r {\n"
+        "\n"
+        "bool text_to_mesh(const std::string &, const TextConfiguration &,const std::string &,\n"
+        "                  TriangleMesh *, double, Vec3d *, double *, bool)\n"
+        "{\n"
+        "    throw std::runtime_error(\"3D text is unavailable in the WebAssembly build\");\n"
+        "}\n"
+        "\n"
+        "} // namespace Slic3r\n"
+    )
+    stub_path = SRC / "src/libslic3r/Shape/TextShape_wasm_stub.cpp"
+    if stub_path.exists() and stub_path.read_text(encoding="utf-8") == stub:
+        _log("  OK   Shape/TextShape_wasm_stub.cpp  [already present]")
+    elif DRY_RUN:
+        _log("  WOULD WRITE Shape/TextShape_wasm_stub.cpp")
+    else:
+        stub_path.write_text(stub, encoding="utf-8")
+        _log("  WROTE Shape/TextShape_wasm_stub.cpp")
+
+    # svg: load_svg is declared in Format/svg.hpp and called from Model.cpp.
+    stub2 = (
+        "// Provided by patches/apply.py: Format/svg.cpp is not built for WASM.\n"
+        "#include \"svg.hpp\"\n"
+        "\n"
+        "#include <stdexcept>\n"
+        "\n"
+        "namespace Slic3r {\n"
+        "\n"
+        "bool load_svg(const char *, Model *, std::string &)\n"
+        "{\n"
+        "    throw std::runtime_error(\"SVG import is unavailable in the WebAssembly build\");\n"
+        "}\n"
+        "\n"
+        "} // namespace Slic3r\n"
+    )
+    stub2_path = SRC / "src/libslic3r/Format/svg_wasm_stub.cpp"
+    if stub2_path.exists() and stub2_path.read_text(encoding="utf-8") == stub2:
+        _log("  OK   Format/svg_wasm_stub.cpp  [already present]")
+    elif DRY_RUN:
+        _log("  WOULD WRITE Format/svg_wasm_stub.cpp")
+    else:
+        stub2_path.write_text(stub2, encoding="utf-8")
+        _log("  WROTE Format/svg_wasm_stub.cpp")
+
+    # Register both stubs as sources.
+    patch("src/libslic3r/CMakeLists.txt", [(
+        """# OpenCASCADE. load_svg is stubbed below.
+""",
+        """# OpenCASCADE. load_svg is stubbed below.
+    Format/svg_wasm_stub.cpp
+""",
+        "register svg stub",
+    )])
+    patch("src/libslic3r/CMakeLists.txt", [(
+        """# Shape/TextShape.cpp is OMITTED for WASM: it builds text solids with
+# OpenCASCADE. text_to_mesh is stubbed here.
+""",
+        """# Shape/TextShape.cpp is OMITTED for WASM: it builds text solids with
+# OpenCASCADE. This stub keeps text_to_mesh linkable.
+    Shape/TextShape_wasm_stub.cpp
+""",
+        "register TextShape stub",
+    )])
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -426,7 +538,8 @@ def main() -> int:
         ("[6] CGAL option block guard", patch_cgal_options),
         ("[7] ClipperZUtils include fix", patch_clipperz_includes),
         ("[9] strip the OCCT STEP importer", patch_strip_step),
-        ("[10] bridge injection", patch_bridge),
+        ("[10] strip svg and TextShape", patch_strip_occt_modules),
+        ("[11] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
