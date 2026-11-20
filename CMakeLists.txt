@@ -83,6 +83,58 @@ if(NOT EXISTS "${BSW_SRC}/src/libslic3r/CMakeLists.txt")
     "Run scripts/fetch-source.sh first, then patches/apply.py.")
 endif()
 
+# ── Header-only libraries the tree expects to be on the include path ─────────
+#
+# BambuStudio bundles Eigen at src/eigen/ and adds it globally, because
+# SLIC3R_STATIC is on and the top-level CMakeLists skips find_package(Eigen3) in
+# that case (BambuStudio/CMakeLists.txt:587). Skipping the top-level project
+# means skipping that include_directories too, and every translation unit that
+# does #include <Eigen/Geometry> then fails to compile.
+#
+# Prefer the bundled copy for the same reason upstream does: it is the version
+# the code was written against, and it needs no cross-compilation.
+if(EXISTS "${BSW_SRC}/src/eigen/Eigen")
+  set(EIGEN3_INCLUDE_DIR "${BSW_SRC}/src/eigen/")
+  set(EIGEN3_FOUND TRUE)
+else()
+  find_package(Eigen3 3.3 QUIET)
+  if(EIGEN3_FOUND)
+    set(EIGEN3_INCLUDE_DIR "${EIGEN3_INCLUDE_DIR}")
+  endif()
+endif()
+if(EIGEN3_INCLUDE_DIR)
+  include_directories(BEFORE SYSTEM "${EIGEN3_INCLUDE_DIR}")
+else()
+  message(FATAL_ERROR "Eigen headers not found (looked for ${BSW_SRC}/src/eigen)")
+endif()
+
+# The remaining global include paths from BambuStudio/CMakeLists.txt:386-390.
+# Same reasoning as Eigen: they are set at the top level, so skipping that
+# project means setting them here or every consumer fails to find its headers.
+include_directories("${BSW_SRC}/src")
+include_directories("${CMAKE_CURRENT_BINARY_DIR}/platform")
+include_directories("${BSW_SRC}/src/libigl")
+
+# libcurl is declared INTERFACE at BambuStudio/CMakeLists.txt:551 and linked by
+# libslic3r. The headless slicer never performs network I/O itself -- the host
+# does that -- so an empty INTERFACE target is sufficient.
+if(NOT TARGET libcurl)
+  add_library(libcurl INTERFACE IMPORTED GLOBAL)
+endif()
+
+# expat: prefer the cross-compiled package from deps-install, and fall back to
+# the bundled sources the same way upstream does when it is absent.
+find_package(EXPAT QUIET)
+if(NOT EXPAT_FOUND)
+  add_library(expat STATIC
+    "${BSW_SRC}/src/expat/xmlparse.c"
+    "${BSW_SRC}/src/expat/xmlrole.c"
+    "${BSW_SRC}/src/expat/xmltok.c")
+  target_include_directories(expat PUBLIC "${BSW_SRC}/src/expat")
+  set(EXPAT_LIBRARIES expat)
+  set(EXPAT_INCLUDE_DIRS "${BSW_SRC}/src/expat")
+endif()
+
 # ── Bundled dependencies, in BambuStudio's own order ─────────────────────────
 #
 # libslic3r does NOT stand alone. Its CMakeLists references targets that only
