@@ -58,20 +58,24 @@ CMAKE
 PNG_LIB=$(ls "$PREFIX/lib"/libpng*.a 2>/dev/null | head -1)
 [ -n "$PNG_LIB" ] || PNG_LIB="$PREFIX/lib/libpng.a"
 
-cat > "$PREFIX/lib/cmake/PNG/PNGConfig.cmake" <<CMAKE
+cat > "$PREFIX/lib/cmake/PNG/PNGConfig.cmake" <<'CMAKE'
 set(PNG_FOUND TRUE)
 set(PNG_INCLUDE_DIR  "${CMAKE_CURRENT_LIST_DIR}/../../../include")
 set(PNG_INCLUDE_DIRS "${PNG_INCLUDE_DIR}")
-set(PNG_LIBRARY      "$PNG_LIB")
+set(PNG_LIBRARY      "@PNG_LIB_PATH@")
 set(PNG_LIBRARIES    "${PNG_LIBRARY}")
 if(NOT TARGET PNG::PNG)
   add_library(PNG::PNG STATIC IMPORTED GLOBAL)
   set_target_properties(PNG::PNG PROPERTIES
-    IMPORTED_LOCATION "$PNG_LIB"
+    IMPORTED_LOCATION "@PNG_LIB_PATH@"
     INTERFACE_INCLUDE_DIRECTORIES "${PNG_INCLUDE_DIR}"
     INTERFACE_LINK_LIBRARIES ZLIB::ZLIB)
 endif()
 CMAKE
+
+# The quoted heredoc above keeps "${...}" literal for CMake; the one real
+# path is substituted here.
+sed -i "s|@PNG_LIB_PATH@|$PNG_LIB|g" "$PREFIX/lib/cmake/PNG/PNGConfig.cmake"
 
 echo "[zlibpng] done"
 ls -la "$PREFIX/lib"/libz.a "$PREFIX/lib"/libpng*.a 2>/dev/null || true
