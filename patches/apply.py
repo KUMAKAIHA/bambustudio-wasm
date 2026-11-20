@@ -140,7 +140,15 @@ def patch_libslic3r_cmake() -> None:
         (
             "find_package(CGAL REQUIRED)",
             """if(NOT SLIC3R_WASM)
-find_package(CGAL REQUIRED)
+  find_package(CGAL REQUIRED)
+else()
+  # CGAL is header-only but its CMake config ships a full dependency graph
+  # (GMP/MPFR/Boost/Qhull) that does not survive cross-compilation. The WASM
+  # target still needs the name to exist, because libslic3r_cgal links it and
+  # reads its INTERFACE_COMPILE_OPTIONS.
+  if(NOT TARGET CGAL::CGAL)
+    add_library(CGAL::CGAL INTERFACE IMPORTED GLOBAL)
+  endif()
 endif()""",
             "CGAL conditional",
         ),
@@ -261,6 +269,25 @@ endif()
 """
 
 
+# 7. libslic3r/CMakeLists.txt -- guard the CGAL option-inspection block.
+#
+#    That block reads INTERFACE_COMPILE_OPTIONS off CGAL::CGAL and strips
+#    -frounding-math from it. Under SLIC3R_WASM the target is a bare INTERFACE
+#    stub with no properties set, and get_target_property() hard-errors on a
+#    target whose property was never set. Skipping the block is correct --
+#    there are no CGAL compile options to reset.
+def patch_cgal_options() -> None:
+    patch("src/libslic3r/CMakeLists.txt", [(
+        'get_target_property(_cgal_tgt CGAL::CGAL ALIASED_TARGET)',
+        'if(NOT SLIC3R_WASM)\nget_target_property(_cgal_tgt CGAL::CGAL ALIASED_TARGET)',
+        "CGAL option block open",
+    ), (
+        '    target_compile_options(libslic3r_cgal PRIVATE "${_opts_bad}")\nendif()',
+        '    target_compile_options(libslic3r_cgal PRIVATE "${_opts_bad}")\nendif()\nelse()\n  # WASM: CGAL::CGAL is an empty INTERFACE stub, so there are no compile\n  # options to inspect or reset. Keep the variable set for the link line.\n  set(_cgal_tgt CGAL::CGAL)\nendif()',
+        "CGAL option block close",
+    )])
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -286,7 +313,8 @@ def main() -> int:
         ("[3] Platform.cpp", patch_platform),
         ("[4] Thread.cpp", patch_thread),
         ("[5] Arachne/WallToolPaths.hpp", patch_arachne),
-        ("[6] bridge injection", patch_bridge),
+        ("[6] CGAL option block guard", patch_cgal_options),
+        ("[7] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()
