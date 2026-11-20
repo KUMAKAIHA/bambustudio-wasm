@@ -125,6 +125,16 @@ include_directories("${BSW_SRC}/src")
 include_directories("${CMAKE_CURRENT_BINARY_DIR}/platform")
 include_directories("${BSW_SRC}/src/libigl")
 
+# LIBDIR / LIBDIR_BIN are set at BambuStudio/CMakeLists.txt:380-381 and read by
+# the qhull and libigl subdirectory CMakeLists to locate their own headers:
+#
+#   target_include_directories(qhullstatic BEFORE PUBLIC ${LIBDIR}/qhull/src)
+#
+# Undefined, that expands to "/qhull/src", and qhull fails to compile with
+# "libqhullcpp/Coordinates.h file not found".
+set(LIBDIR     "${BSW_SRC}/src")
+set(LIBDIR_BIN "${CMAKE_CURRENT_BINARY_DIR}/src")
+
 # libcurl is declared INTERFACE at BambuStudio/CMakeLists.txt:551 and linked by
 # libslic3r. The headless slicer never performs network I/O itself -- the host
 # does that -- so an empty INTERFACE target is sufficient.
