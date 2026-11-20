@@ -45,12 +45,28 @@ set(SLIC3R_ALLOW_MCUT_BOOLEAN            ON  CACHE BOOL "" FORCE)
 # encoding_check() is a no-op rather than an undefined command.
 set(SLIC3R_ENC_CHECK OFF CACHE BOOL "" FORCE)
 
-# ── Dependency locations, exported by build.sh ───────────────────────────────
-set(BOOST_ROOT "$ENV{BOOST_WASM_ROOT}" CACHE PATH "Boost built for WASM")
-set(BOOST_INC  "${BOOST_ROOT}/include" CACHE PATH "")
+# ── Dependency locations, exported by CI ─────────────────────────────────────
+#
+# BOOST_ROOT and the Boost_NO_SYSTEM_PATHS dance is what desktop BambuStudio
+# relies on. CMake 4's FindBoost no longer honours it the same way -- it wants
+# the resolved directories directly -- and the failure mode is opaque:
+#
+#   Could NOT find Boost (missing: Boost_INCLUDE_DIR system filesystem ...)
+#
+# Set the paths explicitly instead of hoping the old hints are still read.
+set(BOOST_WASM_ROOT "$ENV{BOOST_WASM_ROOT}" CACHE PATH "Boost built for WASM")
+set(BOOST_ROOT     "${BOOST_WASM_ROOT}"   CACHE PATH "")
+set(Boost_INCLUDE_DIR   "${BOOST_WASM_ROOT}/include" CACHE PATH "" FORCE)
+set(Boost_LIBRARY_DIR   "${BOOST_WASM_ROOT}/lib"     CACHE PATH "" FORCE)
+set(Boost_INCLUDE_DIRS  "${BOOST_WASM_ROOT}/include" CACHE PATH "" FORCE)
+set(Boost_LIBRARY_DIRS  "${BOOST_WASM_ROOT}/lib"     CACHE PATH "" FORCE)
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_NO_SYSTEM_PATHS ON)
 set(Boost_NO_BOOST_CMAKE  ON)
+# CMake 4 needs this explicit hint set to skip its version-file probing, which
+# cannot work against a cross-compiled Boost that was never "installed" by b2
+# into a layout FindBoost expects.
+set(Boost_NO_WARN_NEW_VERSIONS ON)
 
 set(GMP_INCLUDE_DIR  "$ENV{GMP_WASM_INC}"  CACHE PATH "")
 set(GMP_LIBRARIES    "$ENV{GMP_WASM_LIB}"  CACHE PATH "")
