@@ -36,6 +36,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${BSW_CXX_FLAGS}")
 #   Desensitize.cpp:8:26: error: expected value in expression
 # Define it explicitly. 0 keeps the non-public behaviour (no masking overhead),
 # and the community build has no "public release" notion to honour.
+# It must reach the compiler as a definition, not just exist as a CMake
+# variable: the sources test it with #if BBL_RELEASE_TO_PUBLIC, and an undefined
+# identifier there makes the line "#if" with no expression -- which is what
+# produced the recurring utils.cpp:964 "expected expression" once
+# BBL_INTERNAL_TESTING had been defined.
+add_compile_definitions(BBL_RELEASE_TO_PUBLIC=0)
 set(BBL_RELEASE_TO_PUBLIC 0 CACHE STRING "BambuStudio public-release build flag")
 
 # OCCT is not in the WASM build; STEP.hpp guards its OpenCASCADE includes on this.
