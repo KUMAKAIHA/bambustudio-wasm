@@ -34,6 +34,17 @@ set(SLIC3R_BUILD_SANDBOXES  OFF CACHE BOOL "" FORCE)
 set(SLIC3R_PCH              OFF CACHE BOOL "" FORCE)
 set(BUILD_BBS_TEST_TOOLS    OFF CACHE BOOL "" FORCE)
 
+# MCUT-only mesh boolean: OpenMeshCraft ships as a prebuilt desktop blob and
+# cannot be cross-compiled here, so take the fallback backend the project
+# already supports.
+set(SLIC3R_ENABLE_OPENMESHCRAFT_BOOLEAN OFF CACHE BOOL "" FORCE)
+set(SLIC3R_ALLOW_MCUT_BOOLEAN            ON  CACHE BOOL "" FORCE)
+
+# Encoding verification is a contributor lint step; it needs a host binary and
+# is force-disabled upstream for any cross build. Set it explicitly so
+# encoding_check() is a no-op rather than an undefined command.
+set(SLIC3R_ENC_CHECK OFF CACHE BOOL "" FORCE)
+
 # ── Dependency locations, exported by build.sh ───────────────────────────────
 set(BOOST_ROOT "$ENV{BOOST_WASM_ROOT}" CACHE PATH "Boost built for WASM")
 set(BOOST_INC  "${BOOST_ROOT}/include" CACHE PATH "")
@@ -56,10 +67,36 @@ if(NOT EXISTS "${BSW_SRC}/src/libslic3r/CMakeLists.txt")
     "Run scripts/fetch-source.sh first, then patches/apply.py.")
 endif()
 
-# The patched libslic3r is added directly rather than via add_subdirectory on
-# the top-level BambuStudio project: that project pulls in the GUI, wxWidgets
-# and OpenGL, none of which exist for WASM.
-add_subdirectory("${BSW_SRC}/src/libslic3r" libslic3r_build)
+# ── Bundled dependencies, in BambuStudio's own order ─────────────────────────
+#
+# libslic3r does NOT stand alone. Its CMakeLists references targets that only
+# exist because src/CMakeLists.txt has already added these siblings:
+#   encoding_check()  <- build-utils
+#   libigl, mcut      <- their own subdirectories (libslic3r_cgal links both)
+#   qhull, clipper*, admesh, miniz, ...  <- linked into libslic3r directly
+# Adding libslic3r on its own makes configure fail with a cascade of
+# "non-existent target" and "unknown command" errors that look unrelated to
+# the real cause, so the whole set is added here in the upstream order.
+#
+# Deliberately omitted versus the desktop build:
+#   libnoise  -- only reached through the GUI's fuzzy-skin preview
+#   imgui / imguizmo / hidapi -- GUI only, gated behind SLIC3R_GUI upstream
+set(BS_SRC "${BSW_SRC}/src")
+
+add_subdirectory("${BS_SRC}/build-utils"    build-utils)
+add_subdirectory("${BS_SRC}/admesh"         admesh)
+add_subdirectory("${BS_SRC}/boost"          boost_nowide)
+add_subdirectory("${BS_SRC}/clipper"        clipper)
+add_subdirectory("${BS_SRC}/clipper2"       clipper2)
+add_subdirectory("${BS_SRC}/miniz"          miniz)
+add_subdirectory("${BS_SRC}/minilzo"        minilzo)
+add_subdirectory("${BS_SRC}/glu-libtess"    glu_libtess)
+add_subdirectory("${BS_SRC}/qhull"          qhull)
+add_subdirectory("${BS_SRC}/semver"         semver)
+add_subdirectory("${BS_SRC}/libigl"         libigl)
+add_subdirectory("${BS_SRC}/mcut"           mcut)
+add_subdirectory("${BS_SRC}/libnest2d"      libnest2d)
+add_subdirectory("${BS_SRC}/libslic3r"      libslic3r_build)
 
 add_subdirectory(bridge)
 add_subdirectory(wasm)
