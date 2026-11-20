@@ -122,17 +122,26 @@ if(NOT TARGET libcurl)
   add_library(libcurl INTERFACE IMPORTED GLOBAL)
 endif()
 
-# expat: prefer the cross-compiled package from deps-install, and fall back to
-# the bundled sources the same way upstream does when it is absent.
-find_package(EXPAT QUIET)
-if(NOT EXPAT_FOUND)
-  add_library(expat STATIC
-    "${BSW_SRC}/src/expat/xmlparse.c"
-    "${BSW_SRC}/src/expat/xmlrole.c"
-    "${BSW_SRC}/src/expat/xmltok.c")
-  target_include_directories(expat PUBLIC "${BSW_SRC}/src/expat")
-  set(EXPAT_LIBRARIES expat)
-  set(EXPAT_INCLUDE_DIRS "${BSW_SRC}/src/expat")
+# expat: take the cross-compiled package from deps-install.
+#
+# Upstream falls back to bundled sources under src/expat when the system library
+# is absent, but BambuStudio v02.09.01.70 no longer vendors them -- that fallback
+# points at a directory that does not exist. Point FindEXPAT at the dependency
+# prefix instead; scripts/build-deps.sh already built and installed it there.
+if(DEPS_INSTALL)
+  set(EXPAT_INCLUDE_DIR  "${DEPS_INSTALL}/include" CACHE PATH "" FORCE)
+  set(EXPAT_INCLUDE_DIRS "${DEPS_INSTALL}/include")
+  set(EXPAT_LIBRARY      "${DEPS_INSTALL}/lib/libexpat.a" CACHE FILEPATH "" FORCE)
+  set(EXPAT_LIBRARIES    "${DEPS_INSTALL}/lib/libexpat.a")
+  set(EXPAT_FOUND TRUE)
+else()
+  find_package(EXPAT REQUIRED)
+endif()
+if(NOT TARGET expat)
+  add_library(expat INTERFACE IMPORTED GLOBAL)
+  set_target_properties(expat PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${EXPAT_INCLUDE_DIRS}"
+    INTERFACE_LINK_LIBRARIES      "${EXPAT_LIBRARIES}")
 endif()
 
 # ── Bundled dependencies, in BambuStudio's own order ─────────────────────────
