@@ -1,0 +1,10 @@
+# Shell scripts and Python sources must keep LF endings.
+# A CRLF bash script fails on Linux with the extremely confusing
+#   env: $'bash\r': No such file or directory
+# because the shebang line ends with a carriage return.
+*.sh    text eol=lf
+*.py    text eol=lf
+*.yml   text eol=lf
+*.txt   text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
