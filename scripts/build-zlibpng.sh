@@ -16,8 +16,15 @@ PREFIX="${DEPS_INSTALL:-$(pwd)/deps-install}"
 EM_PREFIX="${EMSDK:-/opt/emsdk}/upstream/emscripten"
 SYSROOT="${EM_PREFIX}/cache/sysroot"
 
-echo "[zlibpng] building ports"
-embuilder build zlib libpng
+# The port objects must carry the same threading feature set as the main
+# build. Without -pthread their objects lack the atomics/bulk-memory target
+# features and wasm-ld rejects the link:
+#   --shared-memory is disallowed by png.c.o because it was not compiled with
+#   'atomics' or 'bulk-memory' features.
+export CFLAGS="-pthread -sSUPPORT_LONGJMP=wasm"
+export CXXFLAGS="-pthread -fwasm-exceptions"
+echo "[zlibpng] building ports (threads enabled)"
+embuilder --force build zlib libpng
 
 LIBDIR="${SYSROOT}/lib/wasm32-emscripten"
 INCDIR="${SYSROOT}/include"

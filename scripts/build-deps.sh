@@ -174,7 +174,11 @@ if [ ! -d "$INSTALL/include/boost" ]; then
     --with-iostreams --with-locale --with-log --with-nowide \
     --with-program_options --with-regex --with-system --with-thread \
     "define=BOOST_LOG_WITHOUT_SYSLOG=1" \
-    "define=BOOST_LOG_NO_THREADS=1" \
+    # BOOST_LOG_NO_THREADS deliberately NOT set. It makes Boost.Log emit the
+    # single-threaded logger symbols, while every translation unit in libslic3r
+    # includes Boost.Log without it and therefore references the multi-threaded
+    # v2s_mt_posix names. The link then fails with a wall of "undefined symbol:
+    # boost::log::v2s_mt_posix::..." because nothing in the archive defines them.
     "cxxflags=-fwasm-exceptions -pthread" \
     -j"$NPROC" install
   echo "[boost] done"
