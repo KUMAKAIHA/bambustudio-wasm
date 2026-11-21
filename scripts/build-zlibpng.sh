@@ -21,19 +21,18 @@ SYSROOT="${EM_PREFIX}/cache/sysroot"
 # features and wasm-ld rejects the link:
 #   --shared-memory is disallowed by png.c.o because it was not compiled with
 #   'atomics' or 'bulk-memory' features.
-# embuilder ignores CFLAGS entirely -- it builds ports with its own fixed
-# settings -- so asking it for "zlib libpng" produces objects without atomics no
-# matter what the environment says. Force the port build through emcc instead:
-# compiling a one-line program that uses both headers makes emcc build the port
-# with the flags on that command line.
-echo "[zlibpng] building ports (threads enabled, via emcc)"
-cat > /tmp/port_probe.c <<'EOF'
-#include <zlib.h>
-#include <png.h>
-int port_probe(void) { return (int)(zlibVersion()[0] + png_access_version_number()); }
-EOF
-emcc -pthread -sSUPPORT_LONGJMP=wasm -c /tmp/port_probe.c -o /tmp/port_probe.o \
-  -sUSE_ZLIB=1 -sUSE_LIBPNG=1
+# embuilder reads EMCC_CFLAGS (plain CFLAGS is ignored). The --force flag also
+# matters: without it a cache hit skips the rebuild and keeps the old objects
+# that lack atomics.
+#
+# The port libraries must be produced here, because find_package(PNG) later
+# looks for a real libpng.a under the prefix: compiling with -c alone never
+# materialises the library and configure then fails with
+#   Could NOT find PNG (missing: PNG_LIBRARY)
+echo "[zlibpng] building ports (threads enabled)"
+EMCC_CFLAGS="-pthread -sSUPPORT_LONGJMP=wasm" embuilder --force build zlib libpng || {
+  echo "[zlibpng] embuilder failed, continuing to reuse sysroot copies"
+}
 echo "[zlibpng] port objects built"
 
 LIBDIR="${SYSROOT}/lib/wasm32-emscripten"
