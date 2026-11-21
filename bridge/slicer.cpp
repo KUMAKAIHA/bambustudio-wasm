@@ -36,6 +36,33 @@
 #include <emscripten.h>
 #endif
 
+// Some libslic3r translation units (SupportMaterial.cpp among them) were
+// compiled against headers that map malloc to TBB's scalable allocator, and
+// reference scalable_malloc/scalable_free directly. oneTBB was built with
+// TBBMALLOC_BUILD=OFF, so those symbols do not exist and the link fails.
+//
+// Forward them to the C allocator: scalable_* is a performance abstraction, not
+// a semantic one, and the module already runs on emmalloc.
+extern "C" {
+void *scalable_malloc(size_t size) { return std::malloc(size); }
+void  scalable_free(void *ptr) { std::free(ptr); }
+void *scalable_calloc(size_t n, size_t size) { return std::calloc(n, size); }
+void *scalable_realloc(void *ptr, size_t size) { return std::realloc(ptr, size); }
+int   scalable_posix_memalign(void **memptr, size_t alignment, size_t size)
+{
+    void *p = std::aligned_alloc(alignment, ((size + alignment - 1) / alignment) * alignment);
+    if (!p) return 12;  // ENOMEM
+    *memptr = p;
+    return 0;
+}
+size_t scalable_msize(void *ptr)
+{
+    // Not tracked: the callers that need this use it only for statistics.
+    (void)ptr;
+    return 0;
+}
+}
+
 namespace {
 
 struct Session {

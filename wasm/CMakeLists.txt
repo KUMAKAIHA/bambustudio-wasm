@@ -50,6 +50,12 @@ target_link_options(bsw_engine PRIVATE
   -sPTHREAD_POOL_SIZE_STRICT=2
   # No --preload-file: the headless engine touches only /tmp for input/output.
   -sFORCE_FILESYSTEM=1
+  # Use the ports rather than the prebuilt sysroot copies: the ports get built
+  # with this link's own -pthread/atomics settings, so their objects carry the
+  # target features a shared-memory module requires. The sysroot libpng.a built
+  # by embuilder lacks them and wasm-ld rejects the combination.
+  -sUSE_ZLIB=1
+  -sUSE_LIBPNG=1
   "-sEXPORTED_FUNCTIONS=[\
 '_bsw_session_create',\
 '_bsw_session_destroy',\

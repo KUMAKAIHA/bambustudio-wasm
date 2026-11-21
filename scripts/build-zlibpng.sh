@@ -21,10 +21,20 @@ SYSROOT="${EM_PREFIX}/cache/sysroot"
 # features and wasm-ld rejects the link:
 #   --shared-memory is disallowed by png.c.o because it was not compiled with
 #   'atomics' or 'bulk-memory' features.
-export CFLAGS="-pthread -sSUPPORT_LONGJMP=wasm"
-export CXXFLAGS="-pthread -fwasm-exceptions"
-echo "[zlibpng] building ports (threads enabled)"
-embuilder --force build zlib libpng
+# embuilder ignores CFLAGS entirely -- it builds ports with its own fixed
+# settings -- so asking it for "zlib libpng" produces objects without atomics no
+# matter what the environment says. Force the port build through emcc instead:
+# compiling a one-line program that uses both headers makes emcc build the port
+# with the flags on that command line.
+echo "[zlibpng] building ports (threads enabled, via emcc)"
+cat > /tmp/port_probe.c <<'EOF'
+#include <zlib.h>
+#include <png.h>
+int port_probe(void) { return (int)(zlibVersion()[0] + png_access_version_number()); }
+EOF
+emcc -pthread -sSUPPORT_LONGJMP=wasm -c /tmp/port_probe.c -o /tmp/port_probe.o \
+  -sUSE_ZLIB=1 -sUSE_LIBPNG=1
+echo "[zlibpng] port objects built"
 
 LIBDIR="${SYSROOT}/lib/wasm32-emscripten"
 INCDIR="${SYSROOT}/include"
