@@ -13,6 +13,7 @@
 set -euo pipefail
 
 PREFIX="${DEPS_INSTALL:-$(pwd)/deps-install}"
+NPROC="${NPROC:-$(nproc)}"
 EM_PREFIX="${EMSDK:-/opt/emsdk}/upstream/emscripten"
 SYSROOT="${EM_PREFIX}/cache/sysroot"
 
