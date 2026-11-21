@@ -335,12 +335,42 @@ endif()
 # Emscripten's ports, exposed under the dependency prefix with synthesised
 # CMake config files (see scripts/build-zlibpng.sh). Point at those configs
 # directly: CONFIG mode does not search the prefix for lib/cmake/<name>.
-if(DEPS_INSTALL)
-  set(ZLIB_DIR "${DEPS_INSTALL}/lib/cmake/ZLIB" CACHE PATH "" FORCE)
-  set(PNG_DIR  "${DEPS_INSTALL}/lib/cmake/PNG"  CACHE PATH "" FORCE)
+# Set the variables FindZLIB/FindPNG produce, directly.
+#
+# ZLIB_DIR and PNG_DIR only help modules that honour _DIR, which FindZLIB does
+# not: it probes for ZLIB_LIBRARY and ZLIB_INCLUDE_DIR and ignores everything
+# else. Passing the directories via _DIR is why configure kept reporting
+#   Could NOT find ZLIB (missing: ZLIB_LIBRARY ZLIB_INCLUDE_DIR)
+# even though the libraries were present in the prefix.
+if(NOT DEPS_INSTALL)
+  message(FATAL_ERROR "DEPS_INSTALL is not set; the dependency prefix is required")
 endif()
-find_package(ZLIB REQUIRED)
-find_package(PNG REQUIRED)
+
+set(ZLIB_INCLUDE_DIR  "${DEPS_INSTALL}/include")
+set(ZLIB_INCLUDE_DIRS "${DEPS_INSTALL}/include")
+set(ZLIB_LIBRARY      "${DEPS_INSTALL}/lib/libz.a")
+set(ZLIB_LIBRARIES    "${DEPS_INSTALL}/lib/libz.a")
+set(ZLIB_FOUND TRUE)
+
+set(PNG_INCLUDE_DIR  "${DEPS_INSTALL}/include")
+set(PNG_INCLUDE_DIRS "${DEPS_INSTALL}/include")
+set(PNG_LIBRARY      "${DEPS_INSTALL}/lib/libpng.a")
+set(PNG_LIBRARIES    "${DEPS_INSTALL}/lib/libpng.a")
+set(PNG_FOUND TRUE)
+
+if(NOT TARGET ZLIB::ZLIB)
+  add_library(ZLIB::ZLIB STATIC IMPORTED GLOBAL)
+  set_target_properties(ZLIB::ZLIB PROPERTIES
+    IMPORTED_LOCATION "${ZLIB_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIR}")
+endif()
+if(NOT TARGET PNG::PNG)
+  add_library(PNG::PNG STATIC IMPORTED GLOBAL)
+  set_target_properties(PNG::PNG PROPERTIES
+    IMPORTED_LOCATION "${PNG_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${PNG_INCLUDE_DIR}"
+    INTERFACE_LINK_LIBRARIES ZLIB::ZLIB)
+endif()
 
 # ── GMP / MPFR ──────────────────────────────────────────────────────────────
 #
