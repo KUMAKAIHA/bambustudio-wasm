@@ -19,6 +19,15 @@ target_link_options(bsw_engine PRIVATE
   # handling tables the kernel pulls in at runtime. Without this the module
   # aborts on the first instantiation with "Unable to grow wasm table".
   -sALLOW_TABLE_GROWTH=1
+  # Print::apply dispatches through function pointers taken from virtual tables
+  # that mix libslic3r, oneTBB and CGAL objects. Those pointers are stored as
+  # void* and called through signatures the compiler cannot prove identical, so
+  # the call_indirect traps with "null function or function signature
+  # mismatch". This makes Emscripten generate adaptor thunks for such casts.
+  #
+  # The earlier crash at Print::apply is exactly this failure mode, and it is
+  # independent of configuration content: an empty config crashed identically.
+  -sEMULATE_FUNCTION_POINTER_CASTS=1
   -sMALLOC=emmalloc
   -sSTACK_SIZE=16777216
   -sINITIAL_MEMORY=268435456
@@ -79,7 +88,11 @@ target_link_options(bsw_engine PRIVATE
 'HEAP32',\
 'HEAPU32',\
 'addFunction',\
-'removeFunction'\
+'removeFunction',\
+'FS_createDataFile',\
+'FS_createPath',\
+'FS_readFile',\
+'FS_unlink'\
 ]"
 )
 

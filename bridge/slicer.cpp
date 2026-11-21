@@ -110,19 +110,34 @@ int bsw_init(void *session, const char *config_json)
     if (!s) return BSW_ERR_STATE;
     if (!config_json) return BSW_ERR_JSON;
     try {
-        const size_t len = std::strlen(config_json);
-        if (len > 2) {  // non-empty object
-            // Enable, not Disable: a preset written by a different BambuStudio
-            // version carries keys this build may not know. Disable would throw
-            // on the first unknown key and abort the whole load.
-            Slic3r::ConfigSubstitutionContext ctx(
-                Slic3r::ForwardCompatibilitySubstitutionRule::Enable);
+        const std::string arg(config_json);
+
+        // Two forms are accepted, because both are useful to a host:
+        //   "*PATH*..."  -> load that file from MEMFS (BambuStudio presets
+        //                   are JSON files, and this is the normal case)
+        //   "{...}"      -> inline JSON object
+        // ConfigBase::load_from_json takes a *path*; passing raw JSON text to it
+        // silently records "file not exist" and returns 0, which previously made
+        // bsw_init report success while doing nothing.
+        const bool inline_json = !arg.empty() && arg[0] == '{';
+
+        Slic3r::ConfigSubstitutionContext ctx(
+            Slic3r::ForwardCompatibilitySubstitutionRule::Enable);
+
+        if (inline_json) {
+            // load_from_json_string resolves the same syntax from memory.
+            const Slic3r::ConfigSubstitutions subs =
+                s->config.load_from_json_string(
+                    arg, Slic3r::ForwardCompatibilitySubstitutionRule::Enable);
+            (void)subs;
+        } else if (!arg.empty()) {
             std::map<std::string, std::string> key_values;
             std::string reason;
-            s->config.load_from_json(std::string(config_json), ctx,
-                                     false, key_values, reason);
-            if (!reason.empty()) {
-                set_error(s, "config rejected: " + reason);
+            const int loaded = s->config.load_from_json(arg, ctx, false,
+                                                        key_values, reason);
+            if (loaded <= 0 || !reason.empty()) {
+                set_error(s, "config not loaded: " +
+                             (reason.empty() ? std::string("unknown") : reason));
                 return BSW_ERR_JSON;
             }
         }
