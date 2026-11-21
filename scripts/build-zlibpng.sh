@@ -21,19 +21,46 @@ SYSROOT="${EM_PREFIX}/cache/sysroot"
 # features and wasm-ld rejects the link:
 #   --shared-memory is disallowed by png.c.o because it was not compiled with
 #   'atomics' or 'bulk-memory' features.
-# embuilder reads EMCC_CFLAGS (plain CFLAGS is ignored). The --force flag also
-# matters: without it a cache hit skips the rebuild and keeps the old objects
-# that lack atomics.
+# embuilder cannot produce atomics-enabled ports: verified with ar + strings on
+# its libpng.a, which contains no "atomics"/"bulk-memory" target feature. It
+# builds ports with a fixed internal configuration and ignores both CFLAGS and
+# EMCC_CFLAGS for the target features.
 #
-# The port libraries must be produced here, because find_package(PNG) later
-# looks for a real libpng.a under the prefix: compiling with -c alone never
-# materialises the library and configure then fails with
-#   Could NOT find PNG (missing: PNG_LIBRARY)
-echo "[zlibpng] building ports (threads enabled)"
-EMCC_CFLAGS="-pthread -sSUPPORT_LONGJMP=wasm" embuilder --force build zlib libpng || {
-  echo "[zlibpng] embuilder failed, continuing to reuse sysroot copies"
-}
-echo "[zlibpng] port objects built"
+# The main module is a shared-memory pthread module, and wasm-ld refuses to mix
+# non-atomics objects into one. So the libraries are compiled here, directly
+# from source, with the same flags the link uses.
+echo "[zlibpng] building zlib and libpng from source (threads enabled)"
+PORT_SRC=/tmp/port-src
+rm -rf "$PORT_SRC"; mkdir -p "$PORT_SRC"
+
+for spec in "zlib:https://github.com/madler/zlib/archive/refs/tags/v1.2.13.tar.gz" \
+            "libpng:https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.39.tar.gz"; do
+  name="${spec%%:*}"
+  url="${spec#*:}"
+  echo "[zlibpng] fetching $name"
+  curl -fsSL "$url" | tar xz -C "$PORT_SRC"
+done
+
+# zlib
+ZLIB_DIR="$(find "$PORT_SRC" -maxdepth 1 -type d -name 'zlib-*' | head -1)"
+( cd "$ZLIB_DIR" && \
+  emcc -O2 -pthread -sSUPPORT_LONGJMP=wasm -DHAVE_UNISTD_H \
+       -c adler32.c compress.c crc32.c deflate.c gzclose.c gzlib.c gzread.c \
+          gzwrite.c infback.c inffast.c inflate.c inftrees.c trees.c uncompr.c \
+          zutil.c && \
+  emar rcs "$PREFIX/lib/libz.a" ./*.o )
+
+# libpng
+PNG_DIR="$(find "$PORT_SRC" -maxdepth 1 -type d -name 'libpng-*' | head -1)"
+( cd "$PNG_DIR" && \
+  emcc -O2 -pthread -sSUPPORT_LONGJMP=wasm \
+       -DPNG_NO_READ_tIME -I"$ZLIB_DIR" \
+       -c png.c pngerror.c pngget.c pngmem.c pngpread.c pngread.c \
+          pngrio.c pngrtran.c pngrutil.c pngset.c pngtrans.c pngwio.c \
+          pngwrite.c pngwtran.c pngwutil.c && \
+  emar rcs "$PREFIX/lib/libpng.a" ./*.o )
+
+echo "[zlibpng] libraries built"
 
 LIBDIR="${SYSROOT}/lib/wasm32-emscripten"
 INCDIR="${SYSROOT}/include"

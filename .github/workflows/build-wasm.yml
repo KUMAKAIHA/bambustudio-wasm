@@ -119,7 +119,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: deps-install
-          key: wasm-deps-${{ runner.os }}-b${{ env.BOOST_VERSION }}-g${{ env.GMP_VERSION }}-t${{ env.ONETBB_VERSION }}-o${{ env.OPENSSL_VERSION }}-v4
+          key: wasm-deps-${{ runner.os }}-b${{ env.BOOST_VERSION }}-g${{ env.GMP_VERSION }}-t${{ env.ONETBB_VERSION }}-o${{ env.OPENSSL_VERSION }}-v5
 
       - name: Build WASM dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'

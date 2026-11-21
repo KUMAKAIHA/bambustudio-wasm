@@ -862,6 +862,23 @@ def patch_freetype_guard() -> None:
     )])
 
 
+# 17. Link GMP and MPFR into libslic3r.
+#
+#     CGAL's exact-arithmetic kernel references __gmpz_* directly from
+#     MeshBoolean.cpp and friends. Both libraries are installed by
+#     scripts/build-deps.sh, but nothing on the target link line pulled them
+#     in, so wasm-ld reported a wall of undefined __gmpz_* symbols out of
+#     liblibslic3r_cgal.a.
+def patch_link_gmp() -> None:
+    patch('src/libslic3r/CMakeLists.txt', [(
+        '    PNG::PNG\n    ZLIB::ZLIB',
+        '    PNG::PNG\n    ZLIB::ZLIB\n'
+        '    # CGAL exact arithmetic: referenced as raw __gmpz_* symbols.\n'
+        '    gmp\n    mpfr',
+        'link gmp and mpfr',
+    )])
+
+
 def patch_bridge() -> None:
     append_once(
         "CMakeLists.txt",
@@ -897,7 +914,8 @@ def main() -> int:
         ("[14] strip SLA and OpenVDB", patch_strip_sla),
         ("[15] guard OCCT_LIBS, drop cereal", patch_link_lines),
         ("[16] guard freetype/fontconfig", patch_freetype_guard),
-        ("[17] bridge injection", patch_bridge),
+        ("[17] link gmp/mpfr", patch_link_gmp),
+        ("[18] bridge injection", patch_bridge),
     ]:
         _log(step)
         fn()

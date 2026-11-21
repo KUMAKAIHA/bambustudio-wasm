@@ -342,6 +342,33 @@ endif()
 find_package(ZLIB REQUIRED)
 find_package(PNG REQUIRED)
 
+# ── GMP / MPFR ──────────────────────────────────────────────────────────────
+#
+# CGAL's exact-arithmetic kernel is compiled against GMP, so MeshBoolean and
+# friends reference __gmpz_* directly. The libraries are built and installed by
+# scripts/build-deps.sh, but nothing on the link line pulled them in, and the
+# link failed with a wall of "undefined symbol: __gmpz_add" from
+# liblibslic3r_cgal.a(MeshBoolean.cpp.o).
+if(DEPS_INSTALL AND EXISTS "${DEPS_INSTALL}/lib/libgmp.a")
+  set(GMP_LIBRARIES     "${DEPS_INSTALL}/lib/libgmp.a")
+  set(GMP_INCLUDE_DIR   "${DEPS_INSTALL}/include")
+  set(MPFR_LIBRARIES    "${DEPS_INSTALL}/lib/libmpfr.a")
+  set(MPFR_INCLUDE_DIR  "${DEPS_INSTALL}/include")
+  if(NOT TARGET gmp)
+    add_library(gmp STATIC IMPORTED GLOBAL)
+    set_target_properties(gmp PROPERTIES
+      IMPORTED_LOCATION "${GMP_LIBRARIES}"
+      INTERFACE_INCLUDE_DIRECTORIES "${GMP_INCLUDE_DIR}")
+  endif()
+  if(NOT TARGET mpfr)
+    add_library(mpfr STATIC IMPORTED GLOBAL)
+    set_target_properties(mpfr PROPERTIES
+      IMPORTED_LOCATION "${MPFR_LIBRARIES}"
+      INTERFACE_INCLUDE_DIRECTORIES "${MPFR_INCLUDE_DIR}"
+      INTERFACE_LINK_LIBRARIES gmp)
+  endif()
+endif()
+
 # ── Targets libslic3r's siblings link without ever find_package-ing ──────────
 #
 # libnest2d does target_link_libraries(... NLopt::nlopt ...) but nothing in the
