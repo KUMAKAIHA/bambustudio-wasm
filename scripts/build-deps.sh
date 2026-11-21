@@ -167,6 +167,14 @@ if [ ! -d "$INSTALL/include/boost" ]; then
   # and produces native objects that poison the WASM link with confusing
   # undefined-symbol errors far from the real cause.
   printf 'using clang : emscripten : em++ :\n<archiver>emar\n<ranlib>emranlib ;\n' > ~/user-config.jam
+  # BOOST_LOG_NO_THREADS is deliberately NOT set: it makes Boost.Log emit the
+  # single-threaded logger symbols, while every libslic3r translation unit
+  # references the multi-threaded v2s_mt_posix names, and the link then fails
+  # with a wall of undefined symbols nothing in the archive defines.
+  #
+  # The note lives above the command, not inside it: a comment between
+  # backslash-continued lines swallows the continuation, and b2 receives
+  # "cxxflags=-fwasm-exceptions" with -pthread run as a separate command.
   ./b2 \
     toolset=clang-emscripten variant=release link=static \
     threading=multi --layout=system --prefix="$INSTALL" \
@@ -174,11 +182,6 @@ if [ ! -d "$INSTALL/include/boost" ]; then
     --with-iostreams --with-locale --with-log --with-nowide \
     --with-program_options --with-regex --with-system --with-thread \
     "define=BOOST_LOG_WITHOUT_SYSLOG=1" \
-    # BOOST_LOG_NO_THREADS deliberately NOT set. It makes Boost.Log emit the
-    # single-threaded logger symbols, while every translation unit in libslic3r
-    # includes Boost.Log without it and therefore references the multi-threaded
-    # v2s_mt_posix names. The link then fails with a wall of "undefined symbol:
-    # boost::log::v2s_mt_posix::..." because nothing in the archive defines them.
     "cxxflags=-fwasm-exceptions -pthread" \
     -j"$NPROC" install
   echo "[boost] done"
