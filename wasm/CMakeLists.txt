@@ -37,7 +37,10 @@ target_link_options(bsw_engine PRIVATE
   -sABORTING_MALLOC=0
   -sENVIRONMENT=web,worker
   -sMODULARIZE=1
-  -sEXPORT_ES6=1
+  # EXPORT_ES6 is deliberately off. With it Emscripten emits an ES module whose
+  # default export hides the wasm export table behind a wrapper; without it the
+  # glue assigns the factory to globalThis.BambuModule and the C symbols stay
+  # addressable, which is what host.js expects.
   -sEXPORT_NAME=BambuModule
   -fwasm-exceptions
   -sSUPPORT_LONGJMP=wasm

@@ -225,10 +225,17 @@ jobs:
             // depending on how Emscripten emits the export table.
             const missing = required.filter(n => !ex.has(n) && !ex.has("_" + n));
             if (missing.length) {
-              const sample = [...ex].filter(n => n.includes("bsw"));
               console.error("missing exports:", missing.join(", "));
-              console.error("all bsw-ish exports:", sample.join(", ") || "(none)");
               console.error("total exports:", ex.size);
+              console.error("full export list:", [...ex].sort().join(", "));
+              process.exit(1);
+            }
+            // The module is only useful if it actually contains the slicer.
+            const mib = buf.length / 1048576;
+            console.log("size:", mib.toFixed(1), "MiB");
+            if (mib < 5) {
+              console.error("::error::module is only " + mib.toFixed(1) +
+                " MiB -- the slicer kernel was not linked in");
               process.exit(1);
             }
             console.log("exports OK:", ex.size, "symbols");
