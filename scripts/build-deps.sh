@@ -187,9 +187,18 @@ if [ ! -d "$INSTALL/include/tbb" ]; then
   echo "[tbb] building $ONETBB_VERSION"
   rm -rf /tmp/onetbb
   git clone --depth 1 --branch "$ONETBB_VERSION" https://github.com/oneapi-src/oneTBB.git /tmp/onetbb
+  # -O1, not Release's -O3: wasm-ld crashes in LLVM's WebAssembly instruction
+  # selection while lowering concurrent_monitor_base<address_context>::destroy
+  # from address_waiter.cpp at -O3. It is a backend bug, not a code problem, and
+  # -O1 keeps the same semantics.
+  #
+  # The exception flags must match the main build: TBB objects without
+  # -fwasm-exceptions cannot be linked against objects that use them.
   emcmake cmake -S /tmp/onetbb -B /tmp/tbb-build -G Ninja \
     -DCMAKE_INSTALL_PREFIX="$INSTALL" \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_FLAGS="-O1 $EM_CXX_FLAGS" \
+    -DCMAKE_C_FLAGS="-O1 $EM_CFLAGS" \
     -DTBB_TEST=OFF -DTBB_EXAMPLES=OFF -DTBB_STRICT=OFF -DTBBMALLOC_BUILD=OFF
   emmake cmake --build /tmp/tbb-build -j"$NPROC"
   emmake cmake --install /tmp/tbb-build
