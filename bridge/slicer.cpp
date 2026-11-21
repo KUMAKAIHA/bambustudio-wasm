@@ -112,25 +112,52 @@ int bsw_init(void *session, const char *config_json)
     try {
         const std::string arg(config_json);
 
-        // Two forms are accepted, because both are useful to a host:
-        //   "*PATH*..."  -> load that file from MEMFS (BambuStudio presets
-        //                   are JSON files, and this is the normal case)
-        //   "{...}"      -> inline JSON object
-        // ConfigBase::load_from_json takes a *path*; passing raw JSON text to it
-        // silently records "file not exist" and returns 0, which previously made
-        // bsw_init report success while doing nothing.
-        const bool inline_json = !arg.empty() && arg[0] == '{';
+        // Three forms are accepted, because all three are useful to a host:
+        //   path        -> a JSON file on MEMFS (the normal case: BambuStudio
+        //                  presets are JSON, and load_from_json takes a *path*)
+        //   "{...}"     -> inline JSON object, written to a scratch file first
+        //   "key=value" -> INI-style text, through load_from_ini_string
+        //
+        // load_from_json's first argument is a path, not data. Passing raw JSON
+        // text recorded "file not exist", returned 0, and the bridge used to
+        // drop that return value -- so bsw_init reported success while doing
+        // nothing at all.
+        const bool looks_like_json = arg.find('{') != std::string::npos &&
+                                     arg.find(':') != std::string::npos;
+        const bool looks_like_ini  = !arg.empty() && arg[0] != '{' &&
+                                     arg.find('=') != std::string::npos;
 
-        Slic3r::ConfigSubstitutionContext ctx(
-            Slic3r::ForwardCompatibilitySubstitutionRule::Enable);
+        if (arg.empty()) {
+            // Nothing to load; defaults stay in place.
+        } else if (looks_like_json && arg[0] != '/') {
+            // Spill the inline object to MEMFS so the file-based loader sees a
+            // path, which is the only form it accepts.
+            const char *scratch = "/tmp/bsw_config.json";
+            FILE *f = std::fopen(scratch, "wb");
+            if (!f) { set_error(s, "cannot create /tmp/bsw_config.json");
+                      return BSW_ERR_IO; }
+            std::fwrite(arg.data(), 1, arg.size(), f);
+            std::fclose(f);
 
-        if (inline_json) {
-            // load_from_json_string resolves the same syntax from memory.
-            const Slic3r::ConfigSubstitutions subs =
-                s->config.load_from_json_string(
-                    arg, Slic3r::ForwardCompatibilitySubstitutionRule::Enable);
+            Slic3r::ConfigSubstitutionContext ctx(
+                Slic3r::ForwardCompatibilitySubstitutionRule::Enable);
+            std::map<std::string, std::string> key_values;
+            std::string reason;
+            const int loaded = s->config.load_from_json(scratch, ctx, false,
+                                                        key_values, reason);
+            if (loaded <= 0 || !reason.empty()) {
+                set_error(s, "config not loaded: " +
+                             (reason.empty() ? std::string("unknown") : reason));
+                return BSW_ERR_JSON;
+            }
+        } else if (looks_like_ini) {
+            const Slic3r::ConfigSubstitutions subs = s->config.load_from_ini_string(
+                arg, Slic3r::ForwardCompatibilitySubstitutionRule::Enable);
             (void)subs;
-        } else if (!arg.empty()) {
+        } else {
+            // Treat it as a path.
+            Slic3r::ConfigSubstitutionContext ctx(
+                Slic3r::ForwardCompatibilitySubstitutionRule::Enable);
             std::map<std::string, std::string> key_values;
             std::string reason;
             const int loaded = s->config.load_from_json(arg, ctx, false,
