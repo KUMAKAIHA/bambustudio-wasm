@@ -15,6 +15,10 @@ target_link_options(bsw_engine PRIVATE
   # name, and the resulting table contained neither.
 
   -sALLOW_MEMORY_GROWTH=1
+  # The table is grown by addFunction (progress callback) and by the exception
+  # handling tables the kernel pulls in at runtime. Without this the module
+  # aborts on the first instantiation with "Unable to grow wasm table".
+  -sALLOW_TABLE_GROWTH=1
   -sMALLOC=emmalloc
   -sSTACK_SIZE=16777216
   -sINITIAL_MEMORY=268435456
