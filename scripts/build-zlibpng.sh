@@ -48,7 +48,12 @@ done
 #   ninja: error: build.ninja:396: multiple rules generate libz.a
 ZLIB_DIR="$(find "$PORT_SRC" -maxdepth 1 -type d -name 'zlib-*' | head -1)"
 ( cd "$ZLIB_DIR" && \
-  emconfigure ./configure --static --prefix="$PREFIX" --archs="-O2 -pthread -sSUPPORT_LONGJMP=wasm" && \
+  # Pass the flags through CFLAGS rather than --archs: zlib's configure adds
+  # -Werror to its compiler probes, and an emcc warning then aborts the run with
+  # "Compiler error reporting is too harsh". CFLAGS skips that path, and the
+  # -Wno-error keeps future probe warnings from aborting it too.
+  CFLAGS="-O2 -pthread -sSUPPORT_LONGJMP=wasm -Wno-error" \
+    emconfigure ./configure --static --prefix="$PREFIX" && \
   emmake make -j"$NPROC" libz.a && \
   cp -f libz.a "$PREFIX/lib/libz.a" && \
   mkdir -p "$PREFIX/include" && cp -f zlib.h zconf.h "$PREFIX/include/" )
