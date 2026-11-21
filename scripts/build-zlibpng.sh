@@ -34,6 +34,11 @@ echo "[zlibpng] building zlib and libpng from source (threads enabled)"
 PORT_SRC=/tmp/port-src
 rm -rf "$PORT_SRC"; mkdir -p "$PORT_SRC"
 
+# The install tree has to exist before zlib's build copies libz.a into it -- the
+# copy ran ahead of the mkdir and failed, leaving the prefix without a zlib and
+# configure reporting "Could NOT find ZLIB (missing: ZLIB_LIBRARY)".
+mkdir -p "$PREFIX/lib" "$PREFIX/include"
+
 for spec in "zlib:https://github.com/madler/zlib/archive/refs/tags/v1.2.13.tar.gz" \
             "libpng:https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.39.tar.gz"; do
   name="${spec%%:*}"
