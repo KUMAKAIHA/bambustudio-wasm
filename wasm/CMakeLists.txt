@@ -20,7 +20,10 @@ target_link_options(bsw_engine PRIVATE
   -sINITIAL_MEMORY=268435456
   -sMAXIMUM_MEMORY=4294967296
   -sABORTING_MALLOC=0
-  -sENVIRONMENT=web,worker
+  # node is included so CI can load the glue and verify the exported API the
+  # same way a host does. The wasm raw export table is minified by -O3, so
+  # inspecting it directly is not a meaningful check.
+  -sENVIRONMENT=web,worker,node
   -sMODULARIZE=1
   # EXPORT_ES6 is deliberately off. With it Emscripten emits an ES module whose
   # default export hides the wasm export table behind a wrapper; without it the
